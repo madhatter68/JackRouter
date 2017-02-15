@@ -102,6 +102,7 @@ public:
         try {
             midiin = new RtMidiIn(RtMidi::MACOSX_CORE);
             midiin->openVirtualPort(name);
+            midiin->ignoreTypes(false, false, false);
         } catch ( RtMidiError &error ) {
             error.printMessage();
             exit( EXIT_FAILURE );
@@ -122,18 +123,20 @@ public:
             aout[1] = (sample_t*)jack_port_get_buffer(audioOut[1], nframes);
             audioStream->receiveFromUpstream(aout, nframes);
         }
-#if 0
         mout = jack_port_get_buffer(midiOut[0], nframes);
         jack_midi_clear_buffer(mout);
         midiin->getMessage(&message);
         while(message.size() > 0) {
-            buf = jack_midi_event_reserve(mout, nframes, message.size());
-            for(int i=0; i<message.size(); i++) {
-                buf[i] = message[i];
+            buf = jack_midi_event_reserve(mout, 0, message.size());
+            if (buf != NULL) {
+                for(int i=0; i<message.size(); i++) {
+                    buf[i] = message[i];
+                }
+            } else {
+                fprintf(stderr, "ERROR: jack_midi_event_reserve failed()\n");
             }
             midiin->getMessage(&message);
         }
-#endif
         return 0;
     }
 
