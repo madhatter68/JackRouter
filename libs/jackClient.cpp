@@ -34,7 +34,7 @@ void JackClient::finalize_audio_ports() {
 }
 
 void JackClient::setAudioFormat() {
-    format.SampleRate = 48000;
+    format.SampleRate = jack_get_sample_rate(client);
     format.bitsPerSample = 32;
     format.SamplesPerFrame = 256;
 }
