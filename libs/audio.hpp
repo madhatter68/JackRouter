@@ -63,7 +63,7 @@ public:
     }
 
     int dataAvailable(int nframes) {
-        unsigned int diff;
+        int diff;
         
         diff = (wptr-rptr) & (BUFNUM-1);
         if (diff < nframes) {

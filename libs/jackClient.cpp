@@ -78,7 +78,7 @@ int JackClient::process_callback(jack_nframes_t nframes) {
                     midiData_t *data = midiInStream[i]->getNextBuffer();
                     data->size = event.size;
                     data->time = 0;
-                    for (int k=0; j<event.size; k++) {
+                    for (unsigned int k=0; k<event.size; k++) {
                         data->data[k] = event.buffer[k];
                     }
                     midiInStream[i]->sendToStream(data);
