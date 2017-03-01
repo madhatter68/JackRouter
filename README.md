@@ -5,8 +5,8 @@ This is yet another jackrouter implementation for MacOS. Note that it's just
 early prototype for reference at this moment. Please be careful to use it.
 
 ## Limitation
-- Audio Input and MIDI output is NOT implemented yet.
-- Tested only in 48kHz mode. 
+- Audio Input is NOT implemented yet.
+- Supports only 44.1/48kHz mode.
 
 ## Build
 JackRouter consists of two parts, a daemon and a user-space Core Audio driver.
