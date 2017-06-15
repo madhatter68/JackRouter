@@ -30,35 +30,80 @@ SOFTWARE.
 #include <rtmidi/RtMidi.h>
 #include <jack/jack.h>
 #include <jack/midiport.h>
+#include "audio.hpp"
+#include "midi.hpp"
 #include "coreAudio.hpp"
 #include "jackClient.hpp"
 
 static const char* nameAin[]= {"input_L", "input_R", NULL};
 static const char* nameAout[] = {"output_L", "output_R", NULL};
-static const char* nameMin[] = {"event_in", NULL};
-static const char* nameMout[] = {"event_out", NULL};
+
+#define MAX_MIDI_PORTS 256
 
 class JackRouterIn : public JackClient {
 private:
-    RtMidiOut  *midiout;
+    RtMidiOut  **midiout;
     coreAudioStream *audioStream;
+    const char** ports;
+    int nPorts;
+    char** nameMin;
+
+    int get_num_ports() {
+        int num;
+        ports = jack_get_ports(client, "system", ".*raw midi", JackPortIsOutput);
+        if (!ports) {
+            return 0;
+        }
+        for(num=0;*ports != NULL; ports++,num++) {
+            //jack_port_t* p = jack_port_by_name(client, *ports);
+            //std::cout << ";" << *ports << ";" << jack_port_short_name(p) << ";" << jack_port_type(p) << std::endl;
+        }
+        return num;
+    }
+
+    void connect_ports() {
+    }
 
 public:
-    JackRouterIn(const char* name) : JackClient(name, nameAin, NULL, nameMin, NULL) {
-        try {
-            midiout = new RtMidiOut(RtMidi::MACOSX_CORE);
-            midiout->openVirtualPort(name);
-        } catch ( RtMidiError &error ) {
-            error.printMessage();
-            exit( EXIT_FAILURE );
+    audioFormat format;
+
+    JackRouterIn(const char* name) : JackClient(name, JACK_PROCESS_CALLBACK) {
+        char buf[256];
+        nPorts = get_num_ports();
+        midiout = (RtMidiOut**)malloc(sizeof(RtMidiOut*)*nPorts);
+        nameMin = (char**)malloc(sizeof(char*)*(nPorts+1));
+
+        for(int n=0; n<nPorts; n++) {
+            try {
+                midiout[n] = new RtMidiOut(RtMidi::MACOSX_CORE);
+                snprintf(buf, 256, "%s %d", name, n+1);
+                midiout[n]->openVirtualPort(buf);
+            } catch ( RtMidiError &error ) {
+                error.printMessage();
+                exit( EXIT_FAILURE );
+            }
+
+            nameMin[n] = (char*)malloc(256);
+            snprintf(nameMin[n], 256, "event_in_%d", n+1);
         }
+        nameMin[nPorts] = NULL;
+ 
+        // Register Audio/MIDI ports depending on the number of system MIDI ports
+        register_ports(nameAin, NULL, (const char**)nameMin, NULL);
+        connect_ports();
     }
 
     ~JackRouterIn() {
+        for(int n=0; n<nPorts; n++) {
+            delete midiout[n];
+            free(nameMin[n]);
+        }
+        free(midiout);
+        free(nameMin);
     }
 
     int process_callback(jack_nframes_t nframes) override {
-        sample_t *ain[2];    // for Audio
+        //sample_t *ain[2];    // for Audio
         void *min;              // for MIDI
         int count;
         jack_midi_event_t event;
@@ -70,16 +115,18 @@ public:
             audioStream->sendToDownstream(ain, nframes);
         }
 #endif
-        min = jack_port_get_buffer(midiIn[0], nframes);
-        count = jack_midi_get_event_count(min);
-        for(int i=0; i<count; i++) {
-            jack_midi_event_get(&event, min, i);
-            message.clear();
-            for (int j=0; j<event.size; j++) {
-                message.push_back(event.buffer[j]);
-            }
-            if (message.size() > 0) {
-                midiout->sendMessage(&message);
+        for(int n=0; n<nPorts; n++) {
+            min = jack_port_get_buffer(midiIn[n], nframes);
+            count = jack_midi_get_event_count(min);
+            for(int i=0; i<count; i++) {
+                jack_midi_event_get(&event, min, i);
+                message.clear();
+                for (int j=0; j<event.size; j++) {
+                    message.push_back(event.buffer[j]);
+                }
+                if (message.size() > 0) {
+                    midiout[n]->sendMessage(&message);
+                }
             }
         }
         return 0;
@@ -90,26 +137,72 @@ public:
         return 0;
     }
 
+    void setAudioFormat() {
+        format.SampleRate = SampleRate;
+        format.bitsPerSample = 32;
+        format.SamplesPerFrame = 256;
+    }
 };
 
 class JackRouterOut : public JackClient {
 private:
-    RtMidiIn  *midiin;
+    RtMidiIn  **midiin;
     coreAudioStream *audioStream;
+    const char** ports;
+    int nPorts;
+    char** nameMout;
+
+    int get_num_ports() {
+        int num;
+        ports = jack_get_ports(client, "system", ".*raw midi", JackPortIsInput);
+        if (!ports) {
+            return 0;
+        }
+        for(num=0;*ports != NULL; ports++,num++) {
+            //jack_port_t* p = jack_port_by_name(client, *ports);
+            //std::cout << ";" << *ports << ";" << jack_port_short_name(p) << ";" << jack_port_type(p) << std::endl;
+        }
+        return num;
+    }
+
+    void connect_ports() {
+    }
 
 public:
-    JackRouterOut(const char* name) : JackClient(name, NULL, nameAout, NULL, nameMout) {
-        try {
-            midiin = new RtMidiIn(RtMidi::MACOSX_CORE);
-            midiin->openVirtualPort(name);
-            midiin->ignoreTypes(false, false, false);
-        } catch ( RtMidiError &error ) {
-            error.printMessage();
-            exit( EXIT_FAILURE );
+    JackRouterOut(const char* name) : JackClient(name, JACK_PROCESS_CALLBACK) {
+        char buf[256];
+        nPorts = get_num_ports();
+        midiin = (RtMidiIn**)malloc(sizeof(RtMidiIn*)*nPorts);
+        nameMout = (char**)malloc(sizeof(char*)*(nPorts+1));
+
+        for(int n=0; n<nPorts; n++) {
+            try {
+                midiin[n] = new RtMidiIn(RtMidi::MACOSX_CORE);
+                snprintf(buf, 256, "%s %d", name, n+1);
+                midiin[n]->openVirtualPort(buf);
+                midiin[n]->ignoreTypes(false, false, false);
+            } catch ( RtMidiError &error ) {
+                error.printMessage();
+                exit( EXIT_FAILURE );
+            }
+
+            nameMout[n] = (char*)malloc(256);
+            snprintf(nameMout[n], 256, "event_out_%d", n+1);
         }
+        nameMout[nPorts] = NULL;
+
+        // Register Audio/MIDI ports depending on the number of system MIDI ports
+        register_ports(NULL, nameAout, NULL, (const char**)nameMout);
+        connect_ports();
     }
 
     ~JackRouterOut() {
+        for(int n=0; n<nPorts; n++) {
+            delete midiin[n];
+            free(nameMout[n]);
+        }
+        free(midiin);
+        free(nameMout);
     }
 
     int process_callback(jack_nframes_t nframes) override {
@@ -123,19 +216,22 @@ public:
             aout[1] = (sample_t*)jack_port_get_buffer(audioOut[1], nframes);
             audioStream->receiveFromUpstream(aout, nframes);
         }
-        mout = jack_port_get_buffer(midiOut[0], nframes);
-        jack_midi_clear_buffer(mout);
-        midiin->getMessage(&message);
-        while(message.size() > 0) {
-            buf = jack_midi_event_reserve(mout, 0, message.size());
-            if (buf != NULL) {
-                for(int i=0; i<message.size(); i++) {
-                    buf[i] = message[i];
+
+        for(int n=0; n<nPorts; n++) {
+            mout = jack_port_get_buffer(midiOut[n], nframes);
+            jack_midi_clear_buffer(mout);
+            midiin[n]->getMessage(&message);
+            while(message.size() > 0) {
+                buf = jack_midi_event_reserve(mout, 0, message.size());
+                if (buf != NULL) {
+                    for(int i=0; i<message.size(); i++) {
+                        buf[i] = message[i];
+                    }
+                } else {
+                    fprintf(stderr, "ERROR: jack_midi_event_reserve failed()\n");
                 }
-            } else {
-                fprintf(stderr, "ERROR: jack_midi_event_reserve failed()\n");
+                midiin[n]->getMessage(&message);
             }
-            midiin->getMessage(&message);
         }
         return 0;
     }

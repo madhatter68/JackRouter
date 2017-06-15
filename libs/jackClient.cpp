@@ -22,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+#include <cstdio>
 #include <jack/jack.h>
 #include <jack/midiport.h>
 #include "jackClient.hpp"
@@ -29,105 +30,57 @@ SOFTWARE.
 /**********************************************************************
  private functions
 **********************************************************************/
-void JackClient::finalize_audio_ports() {
-    jack_client_close(client);
-}
-
-void JackClient::setAudioFormat() {
-    format.SampleRate = jack_get_sample_rate(client);
-    format.bitsPerSample = 32;
-    format.SamplesPerFrame = 256;
-}
-
 int JackClient::process_callback(jack_nframes_t nframes) {
-    sample_t *ain, *aout;    // for Audio
-    void *min, *mout;    // for Audio
-    int i;
-
-    // exchage audio data
-    if (nAudioIn > 0) {
-        for(i=0; i<nAudioIn; i++) {
-            if (audioInStream[i]) {
-                ain = (sample_t*)jack_port_get_buffer(audioIn[i], nframes);
-                audioInStream[i]->sendToStream(ain, nframes);
-            }
-        }
-    }
-
-    if (nAudioOut > 0) {
-        for(i=0; i<nAudioOut; i++) {
-            if (audioOutStream[i]) {
-                aout = (sample_t*)jack_port_get_buffer(audioOut[i], nframes);
-                audioOutStream[i]->receiveFromStream(aout, nframes);
-            }
-        }
-    }
-
-    // exchage MIDI data
-    jack_midi_data_t* buf;
-    jack_midi_event_t event;
-
-    if (nMidiIn > 0) {
-        for(i=0; i<nMidiIn; i++) {
-            if (midiInStream[i]) {
-                // MIDI-In has not been supported yet.
-                min = jack_port_get_buffer(midiIn[0], nframes);
-                int count = jack_midi_get_event_count(min);
-                for(int j=0; j<count; j++) {
-                    jack_midi_event_get(&event, min, j);
-                    midiData_t *data = midiInStream[i]->getNextBuffer();
-                    data->size = event.size;
-                    data->time = 0;
-                    for (unsigned int k=0; k<event.size; k++) {
-                        data->data[k] = event.buffer[k];
-                    }
-                    midiInStream[i]->sendToStream(data);
-                }
-            }
-        }
-    }
-
-    if (nMidiOut > 0) {
-        for(i=0; i<nMidiOut; i++) {
-            if (midiOutStream[i]) {
-                mout = jack_port_get_buffer(midiOut[i], nframes);
-                jack_midi_clear_buffer(mout);
-                while (midiOutStream[i]->dataAvailable()) {
-                    midiData_t *data = midiOutStream[i]->receiveFromStream();
-                    if ((data->size > 0)&&(data->size < 4)) {
-                        buf = jack_midi_event_reserve(mout, data->time, data->size);
-                        for(int j=0; j<data->size; j++) {
-                            buf[j] = data->data[j];
-                        }
-                    }    
-                    midiOutStream[i]->receiveNext();
-                }
-            }
-        }
-    }
     return 0;
 }
 
-static int
-_process_callback(jack_nframes_t nframes, void *arg) {
+int JackClient::_process_callback(jack_nframes_t nframes, void *arg) {
     JackClient* obj= (JackClient*)arg;
     return obj->process_callback(nframes);
+}
+
+int JackClient::sync_callback(jack_transport_state_t state, jack_position_t *pos) {
+    return 0;
+}
+
+int JackClient::_sync_callback(jack_transport_state_t state, jack_position_t *pos, void *arg) {
+    JackClient* obj= (JackClient*)arg;
+    return obj->sync_callback(state, pos);
+}
+
+void JackClient::timebase_callback(jack_transport_state_t state, jack_nframes_t nframes,
+                                   jack_position_t *pos, int new_pos) {
+}
+
+void JackClient::_timebase_callback(jack_transport_state_t state, jack_nframes_t nframes,
+                      jack_position_t *pos, int new_pos, void *arg) {
+    JackClient* obj= (JackClient*)arg;
+    obj->timebase_callback(state, nframes, pos, new_pos);
 }
 
 /**********************************************************************
  public functions
 **********************************************************************/
-JackClient::JackClient(const char* name, const char* nameAin[], const char* nameAout[],
-    const char* nameMin[], const char* nameMout[]) {
+JackClient::JackClient(const char* name, uint32_t flags) {
     jack_status_t jst;
-    int i;
 
     client = jack_client_open(name, JackNullOption, &jst);
     if (!client) {
         //fprintf(stderr, "jack_client_open failed with %x\n", jst);
         return;
     }
-    setAudioFormat();
+    SampleRate = jack_get_sample_rate(client);
+    BufSize = jack_get_buffer_size(client);
+    cb_flags = flags;
+}
+
+JackClient::~JackClient() {
+    jack_client_close(client);
+}
+
+int JackClient::register_ports(const char *nameAin[], const char *nameAout[],
+                               const char *nameMin[], const char *nameMout[]) {
+    int i;
 
     //create Audio input ports
     nAudioIn=0;
@@ -148,8 +101,8 @@ JackClient::JackClient(const char* name, const char* nameAin[], const char* name
         }
         nAudioOut=i;
     }
-
     //create MIDI input ports
+
     nMidiIn=0;
     if (nameMin) {
         for(i=0; (nameMin[i] != NULL)&&(i<MAX_PORT_NUM); i++) {
@@ -168,46 +121,43 @@ JackClient::JackClient(const char* name, const char* nameAin[], const char* name
         }
         nMidiOut=i;
     }
-}
-
-JackClient::~JackClient() {
-    finalize_audio_ports();
-}
-
-int JackClient::bindPorts(audioStream **ain, audioStream **aout, midiStream **min, midiStream **mout) {
-    int i;
-
-    if (ain) {
-        for(i=0; i<nAudioIn; i++) {
-            audioInStream[i] = ain[i];
-        }
-    }
-
-    if (aout) {
-        for(i=0; i<nAudioOut; i++) {
-            audioOutStream[i] = aout[i];
-        }
-    }
-
-    if (min) {
-        for(i=0; i<nMidiIn; i++) {
-            midiInStream[i] = min[i];
-        }
-    }
-
-    if (mout) {
-        for(i=0; i<nMidiOut; i++) {
-            midiOutStream[i] = mout[i];
-        }
-    }
-
     return 0;
 }
 
 void JackClient::activate() {
-    jack_set_process_callback(client, _process_callback, this);
+    if (cb_flags & JACK_PROCESS_CALLBACK) {
+        jack_set_process_callback(client, _process_callback, this);
+    }
     //jack_set_freewheel_callback(client, _freewheel_callback, arg);
     //jack_on_shutdown(client, _on_shutdown, arg);
 
+    if (cb_flags & JACK_SYNC_CALLBACK) {
+        if (jack_set_sync_callback(client, _sync_callback, this) != 0)
+             fprintf(stderr, "jack_set_sync_callback() failed\n");
+    }
+
+    if (cb_flags & JACK_TIMEBASE_CALLBACK) {
+        if (jack_set_timebase_callback(client, 1, _timebase_callback, this) != 0)
+             fprintf(stderr, "Unable to take over timebase.\n");
+    }
+
     jack_activate(client);
+}
+
+// Jack APIs
+// Transport APIs
+void JackClient::transport_start() {
+    jack_transport_start(client);
+}
+
+void JackClient::transport_stop() {
+    jack_transport_stop(client);
+}
+
+jack_transport_state_t JackClient::transport_query(jack_position_t* pos) {
+    return jack_transport_query(client, pos);
+}
+
+int JackClient::transport_reposition(const jack_position_t* pos) {
+    return jack_transport_reposition(client, pos);
 }
