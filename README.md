@@ -15,7 +15,6 @@ JackRouter consists of two parts, a daemon and a user-space Core Audio driver.
 
   libjack and [rtmidi](http://www.music.mcgill.ca/~gary/rtmidi/) libraries are required.
   Please install before build. To build the jackrouter, just run 'build.sh' under the directory.
-  Please ignore some warnings :-)
 
 ```
 cd daemon
@@ -41,4 +40,4 @@ sudo -u _coreaudiod killall coreaudiod
 ```
 
 ## TODO
-TBD
+- Multi instance support
