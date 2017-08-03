@@ -5,7 +5,6 @@ This is yet another jackrouter implementation for MacOS. Note that it's just
 early prototype for reference at this moment. Please be careful to use it.
 
 ## Limitation
-- Audio Input is NOT implemented yet.
 - Supports only 44.1/48kHz mode.
 
 ## Build
