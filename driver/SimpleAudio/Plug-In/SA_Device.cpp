@@ -1637,6 +1637,7 @@ void	SA_Device::DoIOOperation(AudioObjectID inStreamObjectID, UInt32 inOperation
 	{
 		case kAudioServerPlugInIOOperationReadInput:
 			//ReadInputData(inIOBufferFrameSize, inIOCycleInfo.mInputTime.mSampleTime, ioMainBuffer);
+            SA_ReadFrom(inIOBufferFrameSize, inIOCycleInfo.mInputTime.mSampleTime, ioMainBuffer);
 			break;
 			
 		case kAudioServerPlugInIOOperationWriteMix:
@@ -1676,6 +1677,50 @@ void	SA_Device::ReadInputData(UInt32 inIOBufferFrameSize, Float64 inSampleTime, 
 	{
 		memcpy(theDestination + (theNumberFramesToCopy1 * 4), mInputStreamRingBuffer, theNumberFramesToCopy2 * 4);
 	}
+}
+
+#define MAX_DELAY 1024
+
+bool SA_Device::dataAvailableOnDownstream(UInt32 nframes) {
+    UInt32 diff = (*dwp-*drp) & (STRBUFNUM-1);
+    if (diff < nframes*2) {
+        return false;
+    }
+    if (diff > MAX_DELAY*2) {
+        *drp = ((*dwp - nframes*2) & ~(nframes*2 - 1)) & (STRBUFNUM-1);
+    }
+    return true;
+}
+
+void	SA_Device::SA_ReadFrom(UInt32 inIOBufferFrameSize, Float64 inSampleTime, void* outBuffer)
+{
+    //	we need to be holding the IO lock to do this
+    CAMutex::Locker theIOLocker(mIOMutex);
+    
+    //	figure out where we are starting
+    UInt64 theSampleTime = static_cast<UInt64>(inSampleTime);
+    UInt32 theStartFrameOffset = (theSampleTime) % (STRBUFNUM/2);
+    
+    //	figure out how many frames we need to copy
+    if(!dataAvailableOnDownstream(inIOBufferFrameSize)) {
+        return;
+    }
+    UInt32 theNumberFramesToCopy1 = inIOBufferFrameSize;
+    UInt32 theNumberFramesToCopy2 = 0;
+    if((theStartFrameOffset + theNumberFramesToCopy1) > (STRBUFNUM/2))
+    {
+        theNumberFramesToCopy1 = (STRBUFNUM/2) - theStartFrameOffset;
+        theNumberFramesToCopy2 = inIOBufferFrameSize - theNumberFramesToCopy1;
+    }
+    
+    //	do the copying (the byte sizes here assume a 16 bit stereo sample format)
+    Byte* theDestination = reinterpret_cast<Byte*>(outBuffer);
+    memcpy(theDestination, buf_down+theStartFrameOffset*2, theNumberFramesToCopy1 * 8);
+    if(theNumberFramesToCopy2 > 0)
+    {
+        memcpy(theDestination + (theNumberFramesToCopy1 * 8), buf_down, theNumberFramesToCopy2 * 8);
+    }
+    (*drp) = ((theStartFrameOffset + inIOBufferFrameSize)*2) & (STRBUFNUM-1);
 }
 
 void	SA_Device::WriteOutputData(UInt32 inIOBufferFrameSize, Float64 inSampleTime, const void* inBuffer)

@@ -103,18 +103,18 @@ public:
     }
 
     int process_callback(jack_nframes_t nframes) override {
-        //sample_t *ain[2];    // for Audio
+        sample_t *ain[2];    // for Audio
         void *min;              // for MIDI
         int count;
         jack_midi_event_t event;
         std::vector< unsigned char > message;
-#if 0
+
         if (audioStream) {
             ain[0] = (sample_t*)jack_port_get_buffer(audioIn[0], nframes);
             ain[1] = (sample_t*)jack_port_get_buffer(audioIn[1], nframes);
             audioStream->sendToDownstream(ain, nframes);
         }
-#endif
+
         for(int n=0; n<nPorts; n++) {
             min = jack_port_get_buffer(midiIn[n], nframes);
             count = jack_midi_get_event_count(min);

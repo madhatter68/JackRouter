@@ -162,7 +162,9 @@ public:
 	void						EndIOOperation(UInt32 inOperationID, UInt32 inIOBufferFrameSize, const AudioServerPlugInIOCycleInfo& inIOCycleInfo);
 
 private:
+    bool                        dataAvailableOnDownstream(UInt32 nframes);
 	void						ReadInputData(UInt32 inIOBufferFrameSize, Float64 inSampleTime, void* outBuffer);
+    void						SA_ReadFrom(UInt32 inIOBufferFrameSize, Float64 inSampleTime, void* outBuffer);
 	void						WriteOutputData(UInt32 inIOBufferFrameSize, Float64 inSampleTime, const void* inBuffer);
     void						SA_WriteTo(UInt32 inIOBufferFrameSize, Float64 inSampleTime, const void* inBuffer);
 
