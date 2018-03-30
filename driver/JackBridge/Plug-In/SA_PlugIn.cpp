@@ -101,7 +101,7 @@ void	SA_PlugIn::Deactivate()
 
 void	SA_PlugIn::StaticInitializer()
 {
-    syslog(LOG_WARNING, "JackRouter: intializing in StaticInitializer().");
+    syslog(LOG_WARNING, "JackBridge: intializing in StaticInitializer().");
 	try
 	{
 		sInstance = new SA_PlugIn;
@@ -253,36 +253,33 @@ void	SA_PlugIn::SetPropertyData(AudioObjectID inObjectID, pid_t inClientPID, con
 	};
 }
 
-void    SA_PlugIn:: _CreateDevices(UInt32 deviceNum)
+void    SA_PlugIn:: _CreateDevices(UInt32 numDevices)
 {
-    if (deviceNum != 1) {
-        // Supports only one device for now.
-        return;
-    }
-
-    syslog(LOG_WARNING, "JackRouter: creating devices in _CreateDevices().");
+    syslog(LOG_WARNING, "JackBridge: creating devices in _CreateDevices().");
 	//	Note that we catch all exceptions here so that we can finish processing the items in the notification
 	SA_Device* theNewDevice = NULL;
-	try
-	{
-		//	make the new device object
-		AudioObjectID theNewDeviceObjectID = SA_ObjectMap::GetNextObjectID();
-		theNewDevice = new SA_Device(theNewDeviceObjectID);
-			
-		//	add it to the object map
-		SA_ObjectMap::MapObject(theNewDeviceObjectID, theNewDevice);
-				
-		//	add it to the device list
-		AddDevice(theNewDevice);
-				
-		//	activate the device
-		theNewDevice->Activate();
-	}
-	catch(...)
-	{
-		RemoveDevice(theNewDevice);
-		SA_ObjectMap::ReleaseObject(theNewDevice);
-	}
+    for(UInt32 i=0; i<numDevices; i++) {
+        try
+        {
+            //	make the new device object
+            AudioObjectID theNewDeviceObjectID = SA_ObjectMap::GetNextObjectID();
+            theNewDevice = new SA_Device(theNewDeviceObjectID, i);
+            
+            //	add it to the object map
+            SA_ObjectMap::MapObject(theNewDeviceObjectID, theNewDevice);
+            
+            //	add it to the device list
+            AddDevice(theNewDevice);
+            
+            //	activate the device
+            theNewDevice->Activate();
+        }
+        catch(...)
+        {
+            RemoveDevice(theNewDevice);
+            SA_ObjectMap::ReleaseObject(theNewDevice);
+        }
+    }
 }
 
 void	SA_PlugIn::AddDevice(SA_Device* inDevice)

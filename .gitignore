@@ -1,2 +1,5 @@
 daemon/jackrouter
+daemon/JackBridge
 driver/Build/
+cscope.*
+xcuserdata

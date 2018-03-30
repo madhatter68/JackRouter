@@ -60,7 +60,6 @@
 //	PublicUtility Includes
 #include "CACFString.h"
 #include "CAMutex.h"
-#include "CAVolumeCurve.h"
 
 // For Jack
 #include <syslog.h>
@@ -71,33 +70,8 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <sys/stat.h>
-
-typedef float sample_t;
-#define AUDIO_SAMPLE_SIZE (sizeof(sample_t)) // 32bit float PCM
-
-#define MAX_FRAME_SIZE      4096UL
-#define STRBUFNUM           (MAX_FRAME_SIZE*4*2) // stereo * 4buffers
-#define STRBUFSZ            (STRBUFNUM*AUDIO_SAMPLE_SIZE)
-#define JACK_SHMSIZE        (0x1000+STRBUFSZ*2) // control + down/upstream buffers
-
-//  control IDs
-enum
-{
-    kSimpleAudioDriver_Control_MasterInputVolume,
-    kSimpleAudioDriver_Control_MasterOutputVolume
-};
-
-//  volume control ranges
-#define kSimpleAudioDriver_Control_MinRawVolumeValue    0
-#define kSimpleAudioDriver_Control_MaxRawVolumeValue    96
-#define kSimpleAudioDriver_Control_MinDBVolumeValue     -96.0f
-#define kSimpleAudioDriver_Control_MaxDbVolumeValue     0.0f
-
-//==================================================================================================
-//	Types
-//==================================================================================================
-
-struct	SimpleAudioDriverStatus;
+#define _ERROR_SYSLOG_ 1
+#include "JackBridge.h"
 
 //==================================================================================================
 //	SA_Device
@@ -105,12 +79,12 @@ struct	SimpleAudioDriverStatus;
 
 class SA_Device
 :
-	public SA_Object
+	public SA_Object, JackBridgeDriverIF
 {
 
 #pragma mark Construction/Destruction
 public:
-								SA_Device(AudioObjectID inObjectID);
+								SA_Device(AudioObjectID inObjectID, UInt32 instance);
 					
 	virtual void				Activate();
 	virtual void				Deactivate();
@@ -142,14 +116,6 @@ private:
 	void						Stream_GetPropertyData(AudioObjectID inObjectID, pid_t inClientPID, const AudioObjectPropertyAddress& inAddress, UInt32 inQualifierDataSize, const void* inQualifierData, UInt32 inDataSize, UInt32& outDataSize, void* outData) const;
 	void						Stream_SetPropertyData(AudioObjectID inObjectID, pid_t inClientPID, const AudioObjectPropertyAddress& inAddress, UInt32 inQualifierDataSize, const void* inQualifierData, UInt32 inDataSize, const void* inData);
 
-#pragma mark Control Property Operations
-private:
-	bool						Control_HasProperty(AudioObjectID inObjectID, pid_t inClientPID, const AudioObjectPropertyAddress& inAddress) const;
-	bool						Control_IsPropertySettable(AudioObjectID inObjectID, pid_t inClientPID, const AudioObjectPropertyAddress& inAddress) const;
-	UInt32						Control_GetPropertyDataSize(AudioObjectID inObjectID, pid_t inClientPID, const AudioObjectPropertyAddress& inAddress, UInt32 inQualifierDataSize, const void* inQualifierData) const;
-	void						Control_GetPropertyData(AudioObjectID inObjectID, pid_t inClientPID, const AudioObjectPropertyAddress& inAddress, UInt32 inQualifierDataSize, const void* inQualifierData, UInt32 inDataSize, UInt32& outDataSize, void* outData) const;
-	void						Control_SetPropertyData(AudioObjectID inObjectID, pid_t inClientPID, const AudioObjectPropertyAddress& inAddress, UInt32 inQualifierDataSize, const void* inQualifierData, UInt32 inDataSize, const void* inData);
-
 #pragma mark IO Operations
 public:
 	void						StartIO();
@@ -162,11 +128,8 @@ public:
 	void						EndIOOperation(UInt32 inOperationID, UInt32 inIOBufferFrameSize, const AudioServerPlugInIOCycleInfo& inIOCycleInfo);
 
 private:
-    bool                        dataAvailableOnDownstream(UInt32 nframes);
-	void						ReadInputData(UInt32 inIOBufferFrameSize, Float64 inSampleTime, void* outBuffer);
-    void						SA_ReadFrom(UInt32 inIOBufferFrameSize, Float64 inSampleTime, void* outBuffer);
-	void						WriteOutputData(UInt32 inIOBufferFrameSize, Float64 inSampleTime, const void* inBuffer);
-    void						SA_WriteTo(UInt32 inIOBufferFrameSize, Float64 inSampleTime, const void* inBuffer);
+	void						ReadInputData(int streadmd, UInt32 inIOBufferFrameSize, Float64 inSampleTime, void* outBuffer);
+	void						WriteOutputData(int streamId, UInt32 inIOBufferFrameSize, Float64 inSampleTime, const void* inBuffer);
 
 #pragma mark Hardware Accessors
 public:
@@ -179,13 +142,11 @@ private:
 	void						_HW_StopIO();
 	UInt64						_HW_GetSampleRate() const;
 	kern_return_t				_HW_SetSampleRate(UInt64 inNewSampleRate);
-	SInt32						_HW_GetVolumeControlValue(int inControlID) const;
-	kern_return_t				_HW_SetVolumeControlValue(int inControlID, SInt32 inNewControlValue);
 
 #pragma mark Implementation
-#define kDeviceUIDPattern   "JackRouterDevice-%d"
-#define kDeviceUID          "JackRouterDeviceUID"
-#define kDeviceModelUID     "JackRouterDeviceModelUID"
+#define kDeviceUIDPattern   "JackBridgeDevice-%d"
+#define kDeviceUID          "JackBridgeDeviceUID"
+#define kDeviceModelUID     "JackBridgeDeviceModelUID"
     
 public:
     CFStringRef					CopyDeviceUID() const	{ return CFSTR(kDeviceUID); };
@@ -195,15 +156,15 @@ public:
 private:
 	enum
 	{
-								kNumberOfSubObjects					= 4,
-								kNumberOfInputSubObjects			= 2,
+								kNumberOfSubObjects					= 3,
+								kNumberOfInputSubObjects			= 1,
 								kNumberOfOutputSubObjects			= 2,
 								
-								kNumberOfStreams					= 2,
+								kNumberOfStreams					= 3,
 								kNumberOfInputStreams				= 1,
-								kNumberOfOutputStreams				= 1,
+								kNumberOfOutputStreams				= 2,
 								
-								kNumberOfControls					= 2
+								kNumberOfControls					= 0
 	};
 	
 	CAMutex						mStateMutex;
@@ -211,30 +172,19 @@ private:
 	UInt64						mStartCount;
 	UInt64						mSampleRateShadow;
 	UInt32						mRingBufferFrameSize;
-	SimpleAudioDriverStatus*	mDriverStatus;
+	UInt32                  	mDriverStatus;
 	
 	AudioObjectID				mInputStreamObjectID;
 	bool						mInputStreamIsActive;
 	Byte*						mInputStreamRingBuffer;
 	
 	AudioObjectID				mOutputStreamObjectID;
+	AudioObjectID				mOutputStreamObjectID2;
 	bool						mOutputStreamIsActive;
 	Byte*						mOutputStreamRingBuffer;
-	
-	AudioObjectID				mInputMasterVolumeControlObjectID;
-	SInt32						mInputMasterVolumeControlRawValueShadow;
-	AudioObjectID				mOutputMasterVolumeControlObjectID;
-	SInt32						mOutputMasterVolumeControlRawValueShadow;
-	CAVolumeCurve				mVolumeCurve;
 
 #pragma mark jackrouter interfaces
 private:
-    int             JR_JackInit();
-    int             shm_fd;
-    unsigned short  *uwp, *urp, *dwp, *drp;
-    sample_t        *buf_up;
-    sample_t        *buf_down;
-
     Float64                  gDevice_HostTicksPerFrame;
     UInt64                   gDevice_NumberTimeStamps;
     Float64                  gDevice_AnchorSampleTime;

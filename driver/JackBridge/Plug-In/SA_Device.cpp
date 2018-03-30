@@ -70,9 +70,10 @@
 //==================================================================================================
 #pragma mark Construction/Destruction
 
-SA_Device::SA_Device(AudioObjectID inObjectID)
+SA_Device::SA_Device(AudioObjectID inObjectID, UInt32 instance)
 :
 	SA_Object(inObjectID, kAudioDeviceClassID, kAudioObjectClassID, kAudioObjectPlugInObject),
+    JackBridgeDriverIF(instance),
 	mStateMutex("Device State"),
 	mIOMutex("Device IO"),
 	mStartCount(0),
@@ -82,29 +83,22 @@ SA_Device::SA_Device(AudioObjectID inObjectID)
 	mInputStreamIsActive(true),
 	mInputStreamRingBuffer(NULL),
 	mOutputStreamObjectID(SA_ObjectMap::GetNextObjectID()),
+	mOutputStreamObjectID2(SA_ObjectMap::GetNextObjectID()),
 	mOutputStreamIsActive(true),
 	mOutputStreamRingBuffer(NULL),
-	mInputMasterVolumeControlObjectID(SA_ObjectMap::GetNextObjectID()),
-	mInputMasterVolumeControlRawValueShadow(kSimpleAudioDriver_Control_MinRawVolumeValue),
-	mOutputMasterVolumeControlObjectID(SA_ObjectMap::GetNextObjectID()),
-	mOutputMasterVolumeControlRawValueShadow(kSimpleAudioDriver_Control_MinRawVolumeValue),
-	mVolumeCurve()
+	mDriverStatus(JB_DRV_STATUS_INIT)
 {
-	//	Setup the volume curve with the one range
-	mVolumeCurve.AddRange(kSimpleAudioDriver_Control_MinRawVolumeValue, kSimpleAudioDriver_Control_MaxRawVolumeValue, kSimpleAudioDriver_Control_MinDBVolumeValue, kSimpleAudioDriver_Control_MaxDbVolumeValue);
 }
 
 void	SA_Device::Activate()
 {
 	//	Open the connection to the driver and initialize things.
 	_HW_Open();
-    JR_JackInit();
-	
+
 	//	map the subobject IDs to this object
 	SA_ObjectMap::MapObject(mInputStreamObjectID, this);
 	SA_ObjectMap::MapObject(mOutputStreamObjectID, this);
-	SA_ObjectMap::MapObject(mInputMasterVolumeControlObjectID, this);
-	SA_ObjectMap::MapObject(mOutputMasterVolumeControlObjectID, this);
+	SA_ObjectMap::MapObject(mOutputStreamObjectID2, this);
 	
 	//	call the super-class, which just marks the object as active
 	SA_Object::Activate();
@@ -131,8 +125,7 @@ void	SA_Device::Deactivate()
 	//	unmap the subobject IDs
 	SA_ObjectMap::UnmapObject(mInputStreamObjectID, this);
 	SA_ObjectMap::UnmapObject(mOutputStreamObjectID, this);
-	SA_ObjectMap::UnmapObject(mInputMasterVolumeControlObjectID, this);
-	SA_ObjectMap::UnmapObject(mOutputMasterVolumeControlObjectID, this);
+	SA_ObjectMap::UnmapObject(mOutputStreamObjectID2, this);
 	
 	//	close the connection to the driver
 	_HW_Close();
@@ -154,13 +147,9 @@ bool	SA_Device::HasProperty(AudioObjectID inObjectID, pid_t inClientPID, const A
 	{
 		theAnswer = Device_HasProperty(inObjectID, inClientPID, inAddress);
 	}
-	else if((inObjectID == mInputStreamObjectID) || (inObjectID == mOutputStreamObjectID))
+	else if((inObjectID == mInputStreamObjectID) || (inObjectID == mOutputStreamObjectID) || (inObjectID == mOutputStreamObjectID2))
 	{
 		theAnswer = Stream_HasProperty(inObjectID, inClientPID, inAddress);
-	}
-	else if((inObjectID == mInputMasterVolumeControlObjectID) || (inObjectID == mOutputMasterVolumeControlObjectID))
-	{
-		theAnswer = Control_HasProperty(inObjectID, inClientPID, inAddress);
 	}
 	else
 	{
@@ -176,13 +165,9 @@ bool	SA_Device::IsPropertySettable(AudioObjectID inObjectID, pid_t inClientPID, 
 	{
 		theAnswer = Device_IsPropertySettable(inObjectID, inClientPID, inAddress);
 	}
-	else if((inObjectID == mInputStreamObjectID) || (inObjectID == mOutputStreamObjectID))
+	else if((inObjectID == mInputStreamObjectID) || (inObjectID == mOutputStreamObjectID) || (inObjectID == mOutputStreamObjectID2))
 	{
 		theAnswer = Stream_IsPropertySettable(inObjectID, inClientPID, inAddress);
-	}
-	else if((inObjectID == mInputMasterVolumeControlObjectID) || (inObjectID == mOutputMasterVolumeControlObjectID))
-	{
-		theAnswer = Control_IsPropertySettable(inObjectID, inClientPID, inAddress);
 	}
 	else
 	{
@@ -198,13 +183,9 @@ UInt32	SA_Device::GetPropertyDataSize(AudioObjectID inObjectID, pid_t inClientPI
 	{
 		theAnswer = Device_GetPropertyDataSize(inObjectID, inClientPID, inAddress, inQualifierDataSize, inQualifierData);
 	}
-	else if((inObjectID == mInputStreamObjectID) || (inObjectID == mOutputStreamObjectID))
+	else if((inObjectID == mInputStreamObjectID) || (inObjectID == mOutputStreamObjectID) || (inObjectID == mOutputStreamObjectID2))
 	{
 		theAnswer = Stream_GetPropertyDataSize(inObjectID, inClientPID, inAddress, inQualifierDataSize, inQualifierData);
-	}
-	else if((inObjectID == mInputMasterVolumeControlObjectID) || (inObjectID == mOutputMasterVolumeControlObjectID))
-	{
-		theAnswer = Control_GetPropertyDataSize(inObjectID, inClientPID, inAddress, inQualifierDataSize, inQualifierData);
 	}
 	else
 	{
@@ -215,17 +196,14 @@ UInt32	SA_Device::GetPropertyDataSize(AudioObjectID inObjectID, pid_t inClientPI
 
 void	SA_Device::GetPropertyData(AudioObjectID inObjectID, pid_t inClientPID, const AudioObjectPropertyAddress& inAddress, UInt32 inQualifierDataSize, const void* inQualifierData, UInt32 inDataSize, UInt32& outDataSize, void* outData) const
 {
+    //syslog(LOG_WARNING, "JackBridge: Call GetPropertyData %d. ", instance);
 	if(inObjectID == mObjectID)
 	{
 		Device_GetPropertyData(inObjectID, inClientPID, inAddress, inQualifierDataSize, inQualifierData, inDataSize, outDataSize, outData);
 	}
-	else if((inObjectID == mInputStreamObjectID) || (inObjectID == mOutputStreamObjectID))
+	else if((inObjectID == mInputStreamObjectID) || (inObjectID == mOutputStreamObjectID) || (inObjectID == mOutputStreamObjectID2))
 	{
 		Stream_GetPropertyData(inObjectID, inClientPID, inAddress, inQualifierDataSize, inQualifierData, inDataSize, outDataSize, outData);
-	}
-	else if((inObjectID == mInputMasterVolumeControlObjectID) || (inObjectID == mOutputMasterVolumeControlObjectID))
-	{
-		Control_GetPropertyData(inObjectID, inClientPID, inAddress, inQualifierDataSize, inQualifierData, inDataSize, outDataSize, outData);
 	}
 	else
 	{
@@ -239,13 +217,9 @@ void	SA_Device::SetPropertyData(AudioObjectID inObjectID, pid_t inClientPID, con
 	{
 		Device_SetPropertyData(inObjectID, inClientPID, inAddress, inQualifierDataSize, inQualifierData, inDataSize, inData);
 	}
-	else if((inObjectID == mInputStreamObjectID) || (inObjectID == mOutputStreamObjectID))
+	else if((inObjectID == mInputStreamObjectID) || (inObjectID == mOutputStreamObjectID) || (inObjectID == mOutputStreamObjectID2))
 	{
 		Stream_SetPropertyData(inObjectID, inClientPID, inAddress, inQualifierDataSize, inQualifierData, inDataSize, inData);
-	}
-	else if((inObjectID == mInputMasterVolumeControlObjectID) || (inObjectID == mOutputMasterVolumeControlObjectID))
-	{
-		Control_SetPropertyData(inObjectID, inClientPID, inAddress, inQualifierDataSize, inQualifierData, inDataSize, inData);
 	}
 	else
 	{
@@ -487,7 +461,7 @@ void	SA_Device::Device_GetPropertyData(AudioObjectID inObjectID, pid_t inClientP
 			//	value that is a key into the localizable strings in this bundle. This allows us to
 			//	return a localized name for the device.
 			ThrowIf(inDataSize < sizeof(AudioObjectID), CAException(kAudioHardwareBadPropertySizeError), "SA_Device::Device_GetPropertyData: not enough space for the return value of kAudioObjectPropertyManufacturer for the device");
-			*reinterpret_cast<CFStringRef*>(outData) = CFSTR("DeviceName");
+            *reinterpret_cast<CFStringRef*>(outData) = CFSTR("DeviceName");
 			outDataSize = sizeof(CFStringRef);
 			break;
 			
@@ -528,11 +502,7 @@ void	SA_Device::Device_GetPropertyData(AudioObjectID inObjectID, pid_t inClientP
 					}
 					if(theNumberItemsToFetch > 2)
 					{
-						reinterpret_cast<AudioObjectID*>(outData)[2] = mInputMasterVolumeControlObjectID;
-					}
-					if(theNumberItemsToFetch > 3)
-					{
-						reinterpret_cast<AudioObjectID*>(outData)[3] = mOutputMasterVolumeControlObjectID;
+						reinterpret_cast<AudioObjectID*>(outData)[2] = mOutputStreamObjectID2;
 					}
 					break;
 					
@@ -547,10 +517,6 @@ void	SA_Device::Device_GetPropertyData(AudioObjectID inObjectID, pid_t inClientP
 					if(theNumberItemsToFetch > 0)
 					{
 						reinterpret_cast<AudioObjectID*>(outData)[0] = mInputStreamObjectID;
-					}
-					if(theNumberItemsToFetch > 1)
-					{
-						reinterpret_cast<AudioObjectID*>(outData)[1] = mInputMasterVolumeControlObjectID;
 					}
 					break;
 					
@@ -568,7 +534,7 @@ void	SA_Device::Device_GetPropertyData(AudioObjectID inObjectID, pid_t inClientP
 					}
 					if(theNumberItemsToFetch > 1)
 					{
-						reinterpret_cast<AudioObjectID*>(outData)[1] = mOutputMasterVolumeControlObjectID;
+						reinterpret_cast<AudioObjectID*>(outData)[1] = mOutputStreamObjectID2;
 					}
 					break;
 			};
@@ -722,6 +688,10 @@ void	SA_Device::Device_GetPropertyData(AudioObjectID inObjectID, pid_t inClientP
 					{
 						reinterpret_cast<AudioObjectID*>(outData)[1] = mOutputStreamObjectID;
 					}
+					if(theNumberItemsToFetch > 2)
+					{
+						reinterpret_cast<AudioObjectID*>(outData)[2] = mOutputStreamObjectID2;
+					}
 					break;
 					
 				case kAudioObjectPropertyScopeInput:
@@ -750,6 +720,10 @@ void	SA_Device::Device_GetPropertyData(AudioObjectID inObjectID, pid_t inClientP
 					{
 						reinterpret_cast<AudioObjectID*>(outData)[0] = mOutputStreamObjectID;
 					}
+					if(theNumberItemsToFetch > 1)
+					{
+						reinterpret_cast<AudioObjectID*>(outData)[1] = mOutputStreamObjectID2;
+					}
 					break;
 			};
 			
@@ -761,24 +735,7 @@ void	SA_Device::Device_GetPropertyData(AudioObjectID inObjectID, pid_t inClientP
 			//	Calculate the number of items that have been requested. Note that this
 			//	number is allowed to be smaller than the actual size of the list. In such
 			//	case, only that number of items will be returned
-			theNumberItemsToFetch = inDataSize / sizeof(AudioObjectID);
-			if(theNumberItemsToFetch > kNumberOfControls)
-			{
-				theNumberItemsToFetch = kNumberOfControls;
-			}
-			
-			//	fill out the list with as many objects as requested, which is everything
-			if(theNumberItemsToFetch > 0)
-			{
-				reinterpret_cast<AudioObjectID*>(outData)[0] = mInputMasterVolumeControlObjectID;
-			}
-			if(theNumberItemsToFetch > 1)
-			{
-				reinterpret_cast<AudioObjectID*>(outData)[1] = mOutputMasterVolumeControlObjectID;
-			}
-			
-			//	report how much we wrote
-			outDataSize = theNumberItemsToFetch * sizeof(AudioObjectID);
+			outDataSize = 0;
 			break;
 
 		case kAudioDevicePropertySafetyOffset:
@@ -1105,7 +1062,8 @@ void	SA_Device::Stream_GetPropertyData(AudioObjectID inObjectID, pid_t inClientP
 			//	channels each, then the starting channel number for the first stream is 1
 			//	and ths starting channel number fo the second stream is 3.
 			ThrowIf(inDataSize < sizeof(UInt32), CAException(kAudioHardwareBadPropertySizeError), "SA_Device::Stream_GetPropertyData: not enough space for the return value of kAudioStreamPropertyStartingChannel for the stream");
-			*reinterpret_cast<UInt32*>(outData) = 1;
+			*reinterpret_cast<UInt32*>(outData) = (inObjectID == mOutputStreamObjectID2) ? 3 : 1;
+			//*reinterpret_cast<UInt32*>(outData) = 1;
 			outDataSize = sizeof(UInt32);
 			break;
 
@@ -1272,274 +1230,6 @@ void	SA_Device::Stream_SetPropertyData(AudioObjectID inObjectID, pid_t inClientP
 	};
 }
 
-#pragma mark Control Property Operations
-
-bool	SA_Device::Control_HasProperty(AudioObjectID inObjectID, pid_t inClientPID, const AudioObjectPropertyAddress& inAddress) const
-{
-	//	For each object, this driver implements all the required properties plus a few extras that
-	//	are useful but not required. There is more detailed commentary about each property in the
-	//	Control_GetPropertyData() method.
-	
-	bool theAnswer = false;
-	switch(inAddress.mSelector)
-	{
-		case kAudioControlPropertyScope:
-		case kAudioControlPropertyElement:
-		case kAudioLevelControlPropertyScalarValue:
-		case kAudioLevelControlPropertyDecibelValue:
-		case kAudioLevelControlPropertyDecibelRange:
-		case kAudioLevelControlPropertyConvertScalarToDecibels:
-		case kAudioLevelControlPropertyConvertDecibelsToScalar:
-			theAnswer = true;
-			break;
-		
-		default:
-			theAnswer = SA_Object::HasProperty(inObjectID, inClientPID, inAddress);
-			break;
-	};
-	return theAnswer;
-}
-
-bool	SA_Device::Control_IsPropertySettable(AudioObjectID inObjectID, pid_t inClientPID, const AudioObjectPropertyAddress& inAddress) const
-{
-	//	For each object, this driver implements all the required properties plus a few extras that
-	//	are useful but not required. There is more detailed commentary about each property in the
-	//	Control_GetPropertyData() method.
-	
-	bool theAnswer = false;
-	switch(inAddress.mSelector)
-	{
-		case kAudioControlPropertyScope:
-		case kAudioControlPropertyElement:
-		case kAudioLevelControlPropertyDecibelRange:
-		case kAudioLevelControlPropertyConvertScalarToDecibels:
-		case kAudioLevelControlPropertyConvertDecibelsToScalar:
-			theAnswer = false;
-			break;
-		
-		case kAudioLevelControlPropertyScalarValue:
-		case kAudioLevelControlPropertyDecibelValue:
-			theAnswer = true;
-			break;
-		
-		default:
-			theAnswer = SA_Object::IsPropertySettable(inObjectID, inClientPID, inAddress);
-			break;
-	};
-	return theAnswer;
-}
-
-UInt32	SA_Device::Control_GetPropertyDataSize(AudioObjectID inObjectID, pid_t inClientPID, const AudioObjectPropertyAddress& inAddress, UInt32 inQualifierDataSize, const void* inQualifierData) const
-{
-	//	For each object, this driver implements all the required properties plus a few extras that
-	//	are useful but not required. There is more detailed commentary about each property in the
-	//	Control_GetPropertyData() method.
-	
-	UInt32 theAnswer = 0;
-	switch(inAddress.mSelector)
-	{
-		case kAudioControlPropertyScope:
-			theAnswer = sizeof(AudioObjectPropertyScope);
-			break;
-
-		case kAudioControlPropertyElement:
-			theAnswer = sizeof(AudioObjectPropertyElement);
-			break;
-
-		case kAudioLevelControlPropertyScalarValue:
-			theAnswer = sizeof(Float32);
-			break;
-
-		case kAudioLevelControlPropertyDecibelValue:
-			theAnswer = sizeof(Float32);
-			break;
-
-		case kAudioLevelControlPropertyDecibelRange:
-			theAnswer = sizeof(AudioValueRange);
-			break;
-
-		case kAudioLevelControlPropertyConvertScalarToDecibels:
-			theAnswer = sizeof(Float32);
-			break;
-
-		case kAudioLevelControlPropertyConvertDecibelsToScalar:
-			theAnswer = sizeof(Float32);
-			break;
-
-		default:
-			theAnswer = SA_Object::GetPropertyDataSize(inObjectID, inClientPID, inAddress, inQualifierDataSize, inQualifierData);
-			break;
-	};
-	return theAnswer;
-}
-
-void	SA_Device::Control_GetPropertyData(AudioObjectID inObjectID, pid_t inClientPID, const AudioObjectPropertyAddress& inAddress, UInt32 inQualifierDataSize, const void* inQualifierData, UInt32 inDataSize, UInt32& outDataSize, void* outData) const
-{
-	//	For each object, this driver implements all the required properties plus a few extras that
-	//	are useful but not required.
-	//	Also, since most of the data that will get returned is static, there are few instances where
-	//	it is necessary to lock the state mutex.
-	
-	SInt32 theControlRawValue;
-	Float32 theVolumeValue;
-	switch(inAddress.mSelector)
-	{
-		case kAudioObjectPropertyBaseClass:
-			//	The base class for kAudioVolumeControlClassID is kAudioLevelControlClassID
-			ThrowIf(inDataSize < sizeof(AudioClassID), CAException(kAudioHardwareBadPropertySizeError), "SA_Device::Control_GetPropertyData: not enough space for the return value of kAudioObjectPropertyBaseClass for the volume control");
-			*reinterpret_cast<AudioClassID*>(outData) = kAudioLevelControlClassID;
-			outDataSize = sizeof(AudioClassID);
-			break;
-			
-		case kAudioObjectPropertyClass:
-			//	Volume controls are of the class, kAudioVolumeControlClassID
-			ThrowIf(inDataSize < sizeof(AudioClassID), CAException(kAudioHardwareBadPropertySizeError), "SA_Device::Control_GetPropertyData: not enough space for the return value of kAudioObjectPropertyClass for the volume control");
-			*reinterpret_cast<AudioClassID*>(outData) = kAudioVolumeControlClassID;
-			outDataSize = sizeof(AudioClassID);
-			break;
-			
-		case kAudioObjectPropertyOwner:
-			//	The control's owner is the device object
-			ThrowIf(inDataSize < sizeof(AudioObjectID), CAException(kAudioHardwareBadPropertySizeError), "SA_Device::Control_GetPropertyData: not enough space for the return value of kAudioObjectPropertyOwner for the volume control");
-			*reinterpret_cast<AudioObjectID*>(outData) = GetObjectID();
-			outDataSize = sizeof(AudioObjectID);
-			break;
-			
-		case kAudioControlPropertyScope:
-			//	This property returns the scope that the control is attached to.
-			ThrowIf(inDataSize < sizeof(AudioObjectPropertyScope), CAException(kAudioHardwareBadPropertySizeError), "SA_Device::Control_GetPropertyData: not enough space for the return value of kAudioControlPropertyScope for the volume control");
-			*reinterpret_cast<AudioObjectPropertyScope*>(outData) = (inObjectID == mInputMasterVolumeControlObjectID) ? kAudioObjectPropertyScopeInput : kAudioObjectPropertyScopeOutput;
-			outDataSize = sizeof(AudioObjectPropertyScope);
-			break;
-
-		case kAudioControlPropertyElement:
-			//	This property returns the element that the control is attached to.
-			ThrowIf(inDataSize < sizeof(AudioObjectPropertyElement), CAException(kAudioHardwareBadPropertySizeError), "SA_Device::Control_GetPropertyData: not enough space for the return value of kAudioControlPropertyElement for the volume control");
-			*reinterpret_cast<AudioObjectPropertyElement*>(outData) = kAudioObjectPropertyElementMaster;
-			outDataSize = sizeof(AudioObjectPropertyElement);
-			break;
-
-		case kAudioLevelControlPropertyScalarValue:
-			//	This returns the value of the control in the normalized range of 0 to 1.
-			{
-				ThrowIf(inDataSize < sizeof(Float32), CAException(kAudioHardwareBadPropertySizeError), "SA_Device::Control_GetPropertyData: not enough space for the return value of kAudioLevelControlPropertyScalarValue for the volume control");
-				CAMutex::Locker theStateLocker(mStateMutex);
-				theControlRawValue = _HW_GetVolumeControlValue((inObjectID == mInputMasterVolumeControlObjectID) ? kSimpleAudioDriver_Control_MasterInputVolume : kSimpleAudioDriver_Control_MasterOutputVolume);
-				*reinterpret_cast<Float32*>(outData) = mVolumeCurve.ConvertRawToScalar(theControlRawValue);
-				outDataSize = sizeof(Float32);
-			}
-			break;
-
-		case kAudioLevelControlPropertyDecibelValue:
-			//	This returns the dB value of the control.
-			{
-				ThrowIf(inDataSize < sizeof(Float32), CAException(kAudioHardwareBadPropertySizeError), "SA_Device::Control_GetPropertyData: not enough space for the return value of kAudioLevelControlPropertyDecibelValue for the volume control");
-				CAMutex::Locker theStateLocker(mStateMutex);
-				theControlRawValue = _HW_GetVolumeControlValue((inObjectID == mInputMasterVolumeControlObjectID) ? kSimpleAudioDriver_Control_MasterInputVolume : kSimpleAudioDriver_Control_MasterOutputVolume);
-				*reinterpret_cast<Float32*>(outData) = mVolumeCurve.ConvertRawToDB(theControlRawValue);
-				outDataSize = sizeof(Float32);
-			}
-			break;
-
-		case kAudioLevelControlPropertyDecibelRange:
-			//	This returns the dB range of the control.
-			ThrowIf(inDataSize < sizeof(AudioValueRange), CAException(kAudioHardwareBadPropertySizeError), "SA_Device::Control_GetPropertyData: not enough space for the return value of kAudioLevelControlPropertyDecibelRange for the volume control");
-			reinterpret_cast<AudioValueRange*>(outData)->mMinimum = mVolumeCurve.GetMinimumDB();
-			reinterpret_cast<AudioValueRange*>(outData)->mMaximum = mVolumeCurve.GetMaximumDB();
-			outDataSize = sizeof(AudioValueRange);
-			break;
-
-		case kAudioLevelControlPropertyConvertScalarToDecibels:
-			//	This takes the scalar value in outData and converts it to dB.
-			ThrowIf(inDataSize < sizeof(Float32), CAException(kAudioHardwareBadPropertySizeError), "SA_Device::Control_GetPropertyData: not enough space for the return value of kAudioLevelControlPropertyDecibelValue for the volume control");
-			
-			//	clamp the value to be between 0 and 1
-			theVolumeValue = *reinterpret_cast<Float32*>(outData);
-			theVolumeValue = std::min(1.0f, std::max(0.0f, theVolumeValue));
-			
-			//	do the conversion
-			*reinterpret_cast<Float32*>(outData) = mVolumeCurve.ConvertScalarToDB(theVolumeValue);
-			
-			//	report how much we wrote
-			outDataSize = sizeof(Float32);
-			break;
-
-		case kAudioLevelControlPropertyConvertDecibelsToScalar:
-			//	This takes the dB value in outData and converts it to scalar.
-			ThrowIf(inDataSize < sizeof(Float32), CAException(kAudioHardwareBadPropertySizeError), "SA_Device::Control_GetPropertyData: not enough space for the return value of kAudioLevelControlPropertyDecibelValue for the volume control");
-			
-			//	clamp the value to be between kVolume_MinDB and kVolume_MaxDB
-			theVolumeValue = *reinterpret_cast<Float32*>(outData);
-			theVolumeValue = std::min(kSimpleAudioDriver_Control_MaxDbVolumeValue, std::max(kSimpleAudioDriver_Control_MinDBVolumeValue, theVolumeValue));
-			
-			//	do the conversion
-			*reinterpret_cast<Float32*>(outData) = mVolumeCurve.ConvertDBToScalar(theVolumeValue);
-			
-			//	report how much we wrote
-			outDataSize = sizeof(Float32);
-			break;
-
-		default:
-			SA_Object::GetPropertyData(inObjectID, inClientPID, inAddress, inQualifierDataSize, inQualifierData, inDataSize, outDataSize, outData);
-			break;
-	};
-}
-
-void	SA_Device::Control_SetPropertyData(AudioObjectID inObjectID, pid_t inClientPID, const AudioObjectPropertyAddress& inAddress, UInt32 inQualifierDataSize, const void* inQualifierData, UInt32 inDataSize, const void* inData)
-{
-	//	For each object, this driver implements all the required properties plus a few extras that
-	//	are useful but not required. There is more detailed commentary about each property in the
-	//	Control_GetPropertyData() method.
-	
-	bool sendNotifications = false;
-	kern_return_t theError = 0;
-	Float32 theNewVolumeValue;
-	SInt32 theNewRawVolumeValue;
-	switch(inAddress.mSelector)
-	{
-		case kAudioLevelControlPropertyScalarValue:
-			//	For the scalar volume, we clamp the new value to [0, 1]. Note that if this
-			//	value changes, it implies that the dB value changed too.
-			{
-				ThrowIf(inDataSize != sizeof(Float32), CAException(kAudioHardwareBadPropertySizeError), "NullAudio_SetControlPropertyData: wrong size for the data for kAudioLevelControlPropertyScalarValue");
-				theNewVolumeValue = *((const Float32*)inData);
-				theNewVolumeValue = std::min(1.0f, std::max(0.0f, theNewVolumeValue));
-				theNewRawVolumeValue = mVolumeCurve.ConvertScalarToRaw(theNewVolumeValue);
-				CAMutex::Locker theStateLocker(mStateMutex);
-				theError = _HW_SetVolumeControlValue((inObjectID == mInputMasterVolumeControlObjectID) ? kSimpleAudioDriver_Control_MasterInputVolume : kSimpleAudioDriver_Control_MasterOutputVolume, theNewRawVolumeValue);
-				sendNotifications = theError == 0;
-			}
-			break;
-		
-		case kAudioLevelControlPropertyDecibelValue:
-			//	For the dB value, we first convert it to a scalar value since that is how
-			//	the value is tracked. Note that if this value changes, it implies that the
-			//	scalar value changes as well.
-			{
-				ThrowIf(inDataSize != sizeof(Float32), CAException(kAudioHardwareBadPropertySizeError), "NullAudio_SetControlPropertyData: wrong size for the data for kAudioLevelControlPropertyScalarValue");
-				theNewVolumeValue = *((const Float32*)inData);
-				theNewVolumeValue = std::min(kSimpleAudioDriver_Control_MaxDbVolumeValue, std::max(kSimpleAudioDriver_Control_MinDBVolumeValue, theNewVolumeValue));
-				theNewRawVolumeValue = mVolumeCurve.ConvertDBToRaw(theNewVolumeValue);
-				CAMutex::Locker theStateLocker(mStateMutex);
-				theError = _HW_SetVolumeControlValue((inObjectID == mInputMasterVolumeControlObjectID) ? kSimpleAudioDriver_Control_MasterInputVolume : kSimpleAudioDriver_Control_MasterOutputVolume, theNewRawVolumeValue);
-				sendNotifications = theError == 0;
-			}
-			break;
-		
-		default:
-			SA_Object::SetPropertyData(inObjectID, inClientPID, inAddress, inQualifierDataSize, inQualifierData, inDataSize, inData);
-			break;
-	};
-	
-	if(sendNotifications)
-	{
-		CADispatchQueue::GetGlobalSerialQueue().Dispatch(false,	^{
-																	AudioObjectPropertyAddress theChangedProperties[] = { { kAudioLevelControlPropertyScalarValue, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMaster }, { kAudioLevelControlPropertyDecibelValue, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMaster } };
-																	SA_PlugIn::Host_PropertiesChanged(inObjectID, 2, theChangedProperties);
-																});
-	}
-}
-
 #pragma mark IO Operations
 
 void	SA_Device::StartIO()
@@ -1555,7 +1245,6 @@ void	SA_Device::StartIO()
 	{
         gDevice_NumberTimeStamps = 0;
         gDevice_AnchorSampleTime = 0.0;
-        gDevice_AnchorHostTime = mach_absolute_time();
 
 		kern_return_t theError = _HW_StartIO();
 		ThrowIfKernelError(theError, CAException(theError), "SA_Device::StartIO: failed to start because of an error calling down to the driver");
@@ -1582,21 +1271,30 @@ void	SA_Device::StopIO()
 
 void	SA_Device::GetZeroTimeStamp(Float64& outSampleTime, UInt64& outHostTime, UInt64& outSeed)
 {
+    Float64 theHostTickOffset;
+    UInt64 theNextHostTime;
+
     //  calculate the next host time
     Float64 theHostTicksPerRingBuffer = gDevice_HostTicksPerFrame * ((Float64)mRingBufferFrameSize);
-    Float64 theHostTickOffset = ((Float64)(gDevice_NumberTimeStamps + 1)) * theHostTicksPerRingBuffer;
-    UInt64 theNextHostTime = gDevice_AnchorHostTime + ((UInt64)theHostTickOffset);
-
+    theHostTickOffset = ((Float64)(gDevice_NumberTimeStamps + 1)) * theHostTicksPerRingBuffer;
+    theNextHostTime = gDevice_AnchorHostTime + ((UInt64)theHostTickOffset);
     //  go to the next time if the next host time is less than the current time
     if(theNextHostTime <= mach_absolute_time())
     {
         ++gDevice_NumberTimeStamps;
     }
-
+    
     //  set the return values
-    outSampleTime = gDevice_NumberTimeStamps * mRingBufferFrameSize;
-    outHostTime = gDevice_AnchorHostTime + (((Float64)gDevice_NumberTimeStamps) * theHostTicksPerRingBuffer);
-    outSeed = 1;
+    if (*shmSyncMode == 1) {
+        outSampleTime = (*shmNumberTimeStamps) * mRingBufferFrameSize;
+        outHostTime = *shmZeroHostTime;
+    } else {
+        outSampleTime = gDevice_NumberTimeStamps * mRingBufferFrameSize;
+        outHostTime = gDevice_AnchorHostTime + (((Float64)gDevice_NumberTimeStamps) * theHostTicksPerRingBuffer);
+        *shmNumberTimeStamps = gDevice_NumberTimeStamps;
+        *shmZeroHostTime = outHostTime;
+    }
+    outSeed = *shmSeed;
 }
 
 void	SA_Device::WillDoIOOperation(UInt32 inOperationID, bool& outWillDo, bool& outWillDoInPlace) const
@@ -1633,16 +1331,15 @@ void	SA_Device::BeginIOOperation(UInt32 inOperationID, UInt32 inIOBufferFrameSiz
 void	SA_Device::DoIOOperation(AudioObjectID inStreamObjectID, UInt32 inOperationID, UInt32 inIOBufferFrameSize, const AudioServerPlugInIOCycleInfo& inIOCycleInfo, void* ioMainBuffer, void* ioSecondaryBuffer)
 {
 	#pragma unused(inStreamObjectID, ioSecondaryBuffer)
+	int streamId = (inStreamObjectID == mOutputStreamObjectID2) ? 1 : 0;
 	switch(inOperationID)
 	{
 		case kAudioServerPlugInIOOperationReadInput:
-			//ReadInputData(inIOBufferFrameSize, inIOCycleInfo.mInputTime.mSampleTime, ioMainBuffer);
-            SA_ReadFrom(inIOBufferFrameSize, inIOCycleInfo.mInputTime.mSampleTime, ioMainBuffer);
+            ReadInputData(streamId, inIOBufferFrameSize, inIOCycleInfo.mInputTime.mSampleTime, ioMainBuffer);
 			break;
 			
 		case kAudioServerPlugInIOOperationWriteMix:
-			//WriteOutputData(inIOBufferFrameSize, inIOCycleInfo.mOutputTime.mSampleTime, ioMainBuffer);
-            SA_WriteTo(inIOBufferFrameSize, inIOCycleInfo.mOutputTime.mSampleTime, ioMainBuffer);
+			WriteOutputData(streamId, inIOBufferFrameSize, inIOCycleInfo.mOutputTime.mSampleTime, ioMainBuffer);
 			break;
 	};
 }
@@ -1652,10 +1349,12 @@ void	SA_Device::EndIOOperation(UInt32 inOperationID, UInt32 inIOBufferFrameSize,
 	#pragma unused(inOperationID, inIOBufferFrameSize, inIOCycleInfo)
 }
 
-void	SA_Device::ReadInputData(UInt32 inIOBufferFrameSize, Float64 inSampleTime, void* outBuffer)
+void	SA_Device::ReadInputData(int streamId, UInt32 inIOBufferFrameSize, Float64 inSampleTime, void* outBuffer)
 {
 	//	we need to be holding the IO lock to do this
 	CAMutex::Locker theIOLocker(mIOMutex);
+    sample_t *RingBuffer = buf_down[streamId];
+    volatile uint64_t *frameNum = shmReadFrameNumber[streamId];
 	
 	//	figure out where we are starting
 	UInt64 theSampleTime = static_cast<UInt64>(inSampleTime);
@@ -1671,62 +1370,21 @@ void	SA_Device::ReadInputData(UInt32 inIOBufferFrameSize, Float64 inSampleTime, 
 	}
 	
 	//	do the copying (the byte sizes here assume a 16 bit stereo sample format)
-	Byte* theDestination = reinterpret_cast<Byte*>(outBuffer);
-	memcpy(theDestination, mInputStreamRingBuffer + (theStartFrameOffset * 4), theNumberFramesToCopy1 * 4);
-	if(theNumberFramesToCopy2 > 0)
-	{
-		memcpy(theDestination + (theNumberFramesToCopy1 * 4), mInputStreamRingBuffer, theNumberFramesToCopy2 * 4);
-	}
-}
-
-#define MAX_DELAY 1024
-
-bool SA_Device::dataAvailableOnDownstream(UInt32 nframes) {
-    UInt32 diff = (*dwp-*drp) & (STRBUFNUM-1);
-    if (diff < nframes*2) {
-        return false;
-    }
-    if (diff > MAX_DELAY*2) {
-        *drp = ((*dwp - nframes*2) & ~(nframes*2 - 1)) & (STRBUFNUM-1);
-    }
-    return true;
-}
-
-void	SA_Device::SA_ReadFrom(UInt32 inIOBufferFrameSize, Float64 inSampleTime, void* outBuffer)
-{
-    //	we need to be holding the IO lock to do this
-    CAMutex::Locker theIOLocker(mIOMutex);
-    
-    //	figure out where we are starting
-    UInt64 theSampleTime = static_cast<UInt64>(inSampleTime);
-    UInt32 theStartFrameOffset = (theSampleTime) % (STRBUFNUM/2);
-    
-    //	figure out how many frames we need to copy
-    if(!dataAvailableOnDownstream(inIOBufferFrameSize)) {
-        return;
-    }
-    UInt32 theNumberFramesToCopy1 = inIOBufferFrameSize;
-    UInt32 theNumberFramesToCopy2 = 0;
-    if((theStartFrameOffset + theNumberFramesToCopy1) > (STRBUFNUM/2))
-    {
-        theNumberFramesToCopy1 = (STRBUFNUM/2) - theStartFrameOffset;
-        theNumberFramesToCopy2 = inIOBufferFrameSize - theNumberFramesToCopy1;
-    }
-    
-    //	do the copying (the byte sizes here assume a 16 bit stereo sample format)
     Byte* theDestination = reinterpret_cast<Byte*>(outBuffer);
-    memcpy(theDestination, buf_down+theStartFrameOffset*2, theNumberFramesToCopy1 * 8);
+    memcpy(theDestination, RingBuffer+theStartFrameOffset*2, theNumberFramesToCopy1 * 8);
     if(theNumberFramesToCopy2 > 0)
     {
-        memcpy(theDestination + (theNumberFramesToCopy1 * 8), buf_down, theNumberFramesToCopy2 * 8);
+        memcpy(theDestination + (theNumberFramesToCopy1 * 8), RingBuffer, theNumberFramesToCopy2 * 8);
     }
-    (*drp) = ((theStartFrameOffset + inIOBufferFrameSize)*2) & (STRBUFNUM-1);
+    *frameNum = static_cast<UInt64>(inSampleTime) + inIOBufferFrameSize;
 }
 
-void	SA_Device::WriteOutputData(UInt32 inIOBufferFrameSize, Float64 inSampleTime, const void* inBuffer)
+void	SA_Device::WriteOutputData(int streamId, UInt32 inIOBufferFrameSize, Float64 inSampleTime, const void* inBuffer)
 {
 	//	we need to be holding the IO lock to do this
 	CAMutex::Locker theIOLocker(mIOMutex);
+    sample_t *RingBuffer = buf_up[streamId];
+    volatile uint64_t *frameNum = shmWriteFrameNumber[streamId];
 	
 	//	figure out where we are starting
 	UInt64 theSampleTime = static_cast<UInt64>(inSampleTime);
@@ -1742,40 +1400,13 @@ void	SA_Device::WriteOutputData(UInt32 inIOBufferFrameSize, Float64 inSampleTime
 	}
 	
 	//	do the copying (the byte sizes here assume a 16 bit stereo sample format)
-	const Byte* theSource = reinterpret_cast<const Byte*>(inBuffer);
-	memcpy(mOutputStreamRingBuffer + (theStartFrameOffset * 4), theSource, theNumberFramesToCopy1 * 4);
-	if(theNumberFramesToCopy2 > 0)
-	{
-		memcpy(mOutputStreamRingBuffer, theSource + (theNumberFramesToCopy1 * 4), theNumberFramesToCopy2 * 4);
-	}
-}
-
-void SA_Device::SA_WriteTo(UInt32 inIOBufferFrameSize, Float64 inSampleTime, const void* inBuffer)
-{
-	//	we need to be holding the IO lock to do this
-	CAMutex::Locker theIOLocker(mIOMutex);
-	
-    //  figure out where we are starting
-    UInt64 theSampleTime = static_cast<UInt64>(inSampleTime);
-    UInt32 theStartFrameOffset = (theSampleTime) % (STRBUFNUM/2);
-
-    //  figure out how many frames we need to copy
-    UInt32 theNumberFramesToCopy1 = inIOBufferFrameSize;
-    UInt32 theNumberFramesToCopy2 = 0;
-    if((theStartFrameOffset + theNumberFramesToCopy1) > (STRBUFNUM/2))
-    {
-        theNumberFramesToCopy1 = (STRBUFNUM/2) - theStartFrameOffset;
-        theNumberFramesToCopy2 = inIOBufferFrameSize - theNumberFramesToCopy1;
-    }
-
-    //  do the copying (the byte sizes here assume a 16 bit stereo sample format)
     const Byte* theSource = reinterpret_cast<const Byte*>(inBuffer);
-    memcpy(buf_up+theStartFrameOffset*2, theSource, theNumberFramesToCopy1 * 8);
+    memcpy(RingBuffer+theStartFrameOffset*2, theSource, theNumberFramesToCopy1 * 8);
     if(theNumberFramesToCopy2 > 0)
     {
-        memcpy(buf_up, theSource + (theNumberFramesToCopy1 * 8), theNumberFramesToCopy2 * 8);
+        memcpy(RingBuffer, theSource + (theNumberFramesToCopy1 * 8), theNumberFramesToCopy2 * 8);
     }
-    (*uwp) = ((theStartFrameOffset + inIOBufferFrameSize)*2) & (STRBUFNUM-1);
+    *frameNum = static_cast<UInt64>(inSampleTime) + inIOBufferFrameSize;
 }
 
 #pragma mark Hardware Accessors
@@ -1788,25 +1419,46 @@ CFStringRef	SA_Device::HW_CopyDeviceUID()
 
 void	SA_Device::_HW_Open()
 {
-	//	get the sample rate, ring buffer size, and control values to prime the shadows
+    // Initialize shared memory to communicate JackBridge daemon
+    int rc = create_shm();
+    if (rc < 0) {
+        //syslog(LOG_ERR, "JackBridge: Creating shared memory failed (%d)\n", rc);
+        Throw(CAException(kAudioHardwareBadDeviceError));
+        return;
+    }
+
+    if (attach_shm() < 0) {
+        //syslog(LOG_ERR, "JackBridge: Attaching shared memory failed (id=%d)\n", instance);
+        Throw(CAException(kAudioHardwareBadDeviceError));
+        return;
+    }
+    *shmSeed = 1;
+    *shmSyncMode = 0;
+    *shmDriverStatus = mDriverStatus = JB_DRV_STATUS_ACTIVE;
     mRingBufferFrameSize = STRBUFNUM / 2;
-	_HW_GetSampleRate();
-	_HW_GetVolumeControlValue(kSimpleAudioDriver_Control_MasterInputVolume);
-	_HW_GetVolumeControlValue(kSimpleAudioDriver_Control_MasterOutputVolume);
+  
+    syslog(LOG_WARNING, "JackBridge: Device #%d initialized. ", instance);
 }
 
 void	SA_Device::_HW_Close()
 {
+    mDriverStatus = JB_DRV_STATUS_INIT;
     return;
 }
 
 kern_return_t	SA_Device::_HW_StartIO()
 {
-	return 0;
+    if (mDriverStatus == JB_DRV_STATUS_INIT) {
+        return kAudioHardwareNotRunningError;
+    }
+    *shmDriverStatus = mDriverStatus = JB_DRV_STATUS_STARTED;
+    gDevice_AnchorHostTime = 0;
+    return 0;
 }
 
 void	SA_Device::_HW_StopIO()
 {
+    *shmDriverStatus = mDriverStatus = JB_DRV_STATUS_ACTIVE;
 	return;
 }
 
@@ -1819,34 +1471,6 @@ kern_return_t	SA_Device::_HW_SetSampleRate(UInt64 inNewSampleRate)
 {
     mSampleRateShadow = inNewSampleRate;
 	return 0;
-}
-
-SInt32	SA_Device::_HW_GetVolumeControlValue(int inControlID) const
-{
-    switch(inControlID)
-    {
-        case kSimpleAudioDriver_Control_MasterInputVolume:
-            return mInputMasterVolumeControlRawValueShadow;
-
-        case kSimpleAudioDriver_Control_MasterOutputVolume:
-            return mOutputMasterVolumeControlRawValueShadow;
-    }
-    return 0;
-}
-
-kern_return_t	SA_Device::_HW_SetVolumeControlValue(int inControlID, SInt32 inNewControlValue)
-{
-    switch(inControlID)
-    {
-        case kSimpleAudioDriver_Control_MasterInputVolume:
-            mInputMasterVolumeControlRawValueShadow = inNewControlValue;
-            break;
-
-        case kSimpleAudioDriver_Control_MasterOutputVolume:
-            mOutputMasterVolumeControlRawValueShadow = inNewControlValue;
-            break;
-    }
-    return 0;
 }
 
 #pragma mark Implementation
@@ -1879,41 +1503,5 @@ void	SA_Device::AbortConfigChange(UInt64 inChangeAction, void* inChangeInfo)
 	#pragma unused(inChangeAction, inChangeInfo)
 	
 	//	this device doesn't need to do anything special if a change request gets aborted
-}
-
-int SA_Device::JR_JackInit() {
-    struct stat stat;
-
-    syslog(LOG_INFO, "JackRouter: Initializing shared memory to communicate with jack.");
-    shm_fd = shm_open("/jackrouter", O_CREAT|O_RDWR, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH);
-    if (shm_fd < 0) {
-        return -1;
-    }
-
-    if (fstat(shm_fd, &stat) < 0) {
-        return -1;
-    }
-
-    if (stat.st_size == 0) {
-        if (ftruncate(shm_fd, JACK_SHMSIZE) == -1) {
-            return -1;
-        }
-    }
-
-    char* shm_base = (char*)mmap(NULL, JACK_SHMSIZE, PROT_READ|PROT_WRITE, MAP_SHARED, shm_fd, 0);
-    if (shm_base == MAP_FAILED) {
-        return -1;
-    }
-
-    uwp = (unsigned short*)shm_base;
-    urp = ((unsigned short*)shm_base)+1;
-    dwp = ((unsigned short*)shm_base)+2;
-    drp = ((unsigned short*)shm_base)+3;
-    buf_up = (sample_t*)(shm_base + 0x1000);
-    buf_down = buf_up + STRBUFNUM;
-
-    syslog(LOG_WARNING, "JackRouter: Share Memory initialized. (%016llx:%016llx:%016llx:%016llx)",
-           dwp, uwp, buf_up, buf_down);
-    return 0;
 }
 
