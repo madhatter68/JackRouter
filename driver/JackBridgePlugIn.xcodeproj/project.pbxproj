@@ -49,7 +49,7 @@
 		2D4DE41315EDF8D500E96F0D /* CAVolumeCurve.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = CAVolumeCurve.h; sourceTree = "<group>"; };
 		2D7477AC1578168D00412279 /* CoreFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreFoundation.framework; path = System/Library/Frameworks/CoreFoundation.framework; sourceTree = SDKROOT; };
 		2D7477EC157823CF00412279 /* CoreAudio.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreAudio.framework; path = System/Library/Frameworks/CoreAudio.framework; sourceTree = SDKROOT; };
-		2D76D96015E48B2000FF0F33 /* SimpleAudioPlugIn.driver */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SimpleAudioPlugIn.driver; sourceTree = BUILT_PRODUCTS_DIR; };
+		2D76D96015E48B2000FF0F33 /* JackBridgePlugIn.driver */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = JackBridgePlugIn.driver; sourceTree = BUILT_PRODUCTS_DIR; };
 		2D76D97415E48B6400FF0F33 /* SA_PlugIn.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SA_PlugIn.cpp; sourceTree = "<group>"; };
 		2D76D97515E48B6400FF0F33 /* SA_PlugIn.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = SA_PlugIn.h; sourceTree = "<group>"; };
 		2D76D97815E498EB00FF0F33 /* SA_Object.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SA_Object.cpp; sourceTree = "<group>"; };
@@ -100,7 +100,7 @@
 			isa = PBXGroup;
 			children = (
 				2DA8FA1515FEAAB000F04B50 /* ReadMe.txt */,
-				2DED182215C356BA0091BE97 /* SimpleAudio */,
+				2DED182215C356BA0091BE97 /* JackBridge */,
 				2DD7AA0D15EAFD3300C67AE1 /* PublicUtility */,
 				2D7477AB1578168D00412279 /* Frameworks */,
 				2D7477AA1578168D00412279 /* Products */,
@@ -110,7 +110,7 @@
 		2D7477AA1578168D00412279 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				2D76D96015E48B2000FF0F33 /* SimpleAudioPlugIn.driver */,
+				2D76D96015E48B2000FF0F33 /* JackBridgePlugIn.driver */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -165,12 +165,12 @@
 			path = PublicUtility;
 			sourceTree = "<group>";
 		};
-		2DED182215C356BA0091BE97 /* SimpleAudio */ = {
+		2DED182215C356BA0091BE97 /* JackBridge */ = {
 			isa = PBXGroup;
 			children = (
 				2DED182C15C356BA0091BE97 /* Plug-In */,
 			);
-			path = SimpleAudio;
+			path = JackBridge;
 			sourceTree = "<group>";
 		};
 		2DED182C15C356BA0091BE97 /* Plug-In */ = {
@@ -218,9 +218,9 @@
 /* End PBXHeadersBuildPhase section */
 
 /* Begin PBXNativeTarget section */
-		2D76D95F15E48B2000FF0F33 /* SimpleAudioPlugIn */ = {
+		2D76D95F15E48B2000FF0F33 /* JackBridgePlugIn */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 2D76D97215E48B2000FF0F33 /* Build configuration list for PBXNativeTarget "SimpleAudioPlugIn" */;
+			buildConfigurationList = 2D76D97215E48B2000FF0F33 /* Build configuration list for PBXNativeTarget "JackBridgePlugIn" */;
 			buildPhases = (
 				2D76D95E15E48B2000FF0F33 /* Headers */,
 				2D76D95C15E48B2000FF0F33 /* Sources */,
@@ -231,9 +231,9 @@
 			);
 			dependencies = (
 			);
-			name = SimpleAudioPlugIn;
+			name = JackBridgePlugIn;
 			productName = SimpleAudioPlugIn;
-			productReference = 2D76D96015E48B2000FF0F33 /* SimpleAudioPlugIn.driver */;
+			productReference = 2D76D96015E48B2000FF0F33 /* JackBridgePlugIn.driver */;
 			productType = "com.apple.product-type.bundle";
 		};
 /* End PBXNativeTarget section */
@@ -244,7 +244,7 @@
 			attributes = {
 				LastUpgradeCheck = 0500;
 			};
-			buildConfigurationList = 2D7477A01578162B00412279 /* Build configuration list for PBXProject "AudioDriverExamples" */;
+			buildConfigurationList = 2D7477A01578162B00412279 /* Build configuration list for PBXProject "JackBridgePlugIn" */;
 			compatibilityVersion = "Xcode 3.2";
 			developmentRegion = English;
 			hasScannedForEncodings = 0;
@@ -257,7 +257,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				2D76D95F15E48B2000FF0F33 /* SimpleAudioPlugIn */,
+				2D76D95F15E48B2000FF0F33 /* JackBridgePlugIn */,
 			);
 		};
 /* End PBXProject section */
@@ -425,8 +425,9 @@
 					"CoreAudio_Debug=0",
 					"CoreAudio_UseSysLog=1",
 				);
-				INFOPLIST_FILE = "SimpleAudio/Plug-In/SA_PlugIn-Info.plist";
+				INFOPLIST_FILE = "$(SRCROOT)/JackBridge/Plug-In/SA_PlugIn-Info.plist";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Audio/Plug-Ins/HAL";
+				PRODUCT_BUNDLE_IDENTIFIER = "jp.ne.ivory.linux-dtm.JackBridge";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				WRAPPER_EXTENSION = driver;
 			};
@@ -441,8 +442,9 @@
 					"CoreAudio_Debug=1",
 					"CoreAudio_UseSysLog=1",
 				);
-				INFOPLIST_FILE = "SimpleAudio/Plug-In/SA_PlugIn-Info.plist";
+				INFOPLIST_FILE = "$(SRCROOT)/JackBridge/Plug-In/SA_PlugIn-Info.plist";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Audio/Plug-Ins/HAL";
+				PRODUCT_BUNDLE_IDENTIFIER = "jp.ne.ivory.linux-dtm.JackBridge";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				WRAPPER_EXTENSION = driver;
 			};
@@ -457,8 +459,9 @@
 					"CoreAudio_Debug=1",
 					"CoreAudio_UseSysLog=1",
 				);
-				INFOPLIST_FILE = "SimpleAudio/Plug-In/SA_PlugIn-Info.plist";
+				INFOPLIST_FILE = "$(SRCROOT)/JackBridge/Plug-In/SA_PlugIn-Info.plist";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Audio/Plug-Ins/HAL";
+				PRODUCT_BUNDLE_IDENTIFIER = "jp.ne.ivory.linux-dtm.JackBridge";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				WRAPPER_EXTENSION = driver;
 			};
@@ -467,7 +470,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		2D7477A01578162B00412279 /* Build configuration list for PBXProject "AudioDriverExamples" */ = {
+		2D7477A01578162B00412279 /* Build configuration list for PBXProject "JackBridgePlugIn" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				2D7477A21578162B00412279 /* Release */,
@@ -477,7 +480,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		2D76D97215E48B2000FF0F33 /* Build configuration list for PBXNativeTarget "SimpleAudioPlugIn" */ = {
+		2D76D97215E48B2000FF0F33 /* Build configuration list for PBXNativeTarget "JackBridgePlugIn" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				2D76D96F15E48B2000FF0F33 /* Release */,
