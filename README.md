@@ -1,42 +1,67 @@
-# JackRouter
-
+# JackBridge (former "JackRouter")
 ## About
-This is yet another jackrouter implementation for MacOS. Note that it's just
-early prototype for reference at this moment. Please be careful to use it.
+This is an alternative to jackrouter for MacOS. JackBridge acts as virtual
+(currently 2in-4out) audio interfece connected to Jackaudio server directly.
+Even though the master clock of JackBridge becomes synchronized with Jack 
+server, Core Audio Applications connected via JackBridge is out of jackaudio
+connection graph scope. Therefore, I changed the name from "Router" to "Bridge".
+
+NOTE: This is still experimental prototype implementation. Please be careful to use it.
+
+## Changes
+- Master clock synchronization with Jack server
 
 ## Limitation
 - Supports only 44.1/48kHz mode.
 
 ## Build
-JackRouter consists of two parts, a daemon and a user-space Core Audio driver.
+Checkout the codes in "JackBridge" branch.
 
-- jackrouter daemon
+```
+git checkout JackBridge
+```
 
-  libjack and [rtmidi](http://www.music.mcgill.ca/~gary/rtmidi/) libraries are required.
-  Please install before build. To build the jackrouter, just run 'build.sh' under the directory.
+JackBridge consists of two parts, a daemon and a user-space Core Audio driver.
+
+- JackBridge daemon
+
+  You can build two versions of daemon.
+
+  JackBridge: bridge only audio (RtMidi library not required)
+  JackBridgeWithMidi: bridge audio and MIDI (RtMidi library required)
+
+  [rtmidi](http://www.music.mcgill.ca/~gary/rtmidi/) libraries are required to build
+  JackBridgeWithMidi. Please install before build.
+  To build the JackBridge, just run 'build.sh' under the directory.
 
 ```
 cd daemon
 ./build.sh
 ```
 
-- SimpleAudio driver
+- JackBridge driver
 
-  Build the project named "AudioDriverExamples.xcodeproj" with Xcode.
+  Build the project named "JackBridgePlugIn.xcodeproj" with Xcode.
 
 ## Installation
-- jackrouter daemon
+- JackBridge daemon
 
   Locate wherever you like. Just execute after jackd.
 
-- SimpleAudio driver
+- JackBridgePlugIn driver
 
   Copy all contents to '/Library/Audio/Plug-Ins/HAL' and restart coreaudiod.
 
 ```
-sudo cp -r SimpleAudioPlugIn.driver /Library/Audio/Plug-Ins/HAL
+sudo cp -r JackBridgePlugIn.driver /Library/Audio/Plug-Ins/HAL
 sudo -u _coreaudiod killall coreaudiod
 ```
 
+  Then you can see JackBridge device on your application. And you can
+  also change configuration with Audio MIDI setup application.
+
 ## TODO
 - Multi instance support
+
+## Download
+The pre-built binaries can be downloaded from http://linux-dtm.ivory.ne.jp/downloads/MacOS/JackBridge.zip
