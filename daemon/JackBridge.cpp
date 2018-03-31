@@ -32,6 +32,10 @@ SOFTWARE.
 #include <jack/jack.h>
 #include "jackClient.hpp"
 #include "JackBridge.h"
+#ifdef _WITH_MIDI_BRIDGE_
+#include <rtmidi/RtMidi.h>
+#define MAX_MIDI_PORTS 256
+#endif // _WITH_MIDI_BRIDGE_
 
 /*
  * JackBridge.cpp
@@ -56,14 +60,28 @@ public:
         *shmBufferSize = STRBUFSZ;
         *shmSyncMode = 0;
 
+#ifdef _WITH_MIDI_BRIDGE_
+        create_midi_ports(name);
+        register_ports(nameAin, nameAout, (const char**)nameMin, (const char**)nameMout);
+#else
         register_ports(nameAin, nameAout, NULL, NULL);
+#endif // _WITH_MIDI_BRIDGE_
+
     }
 
-    ~JackBridge() { }
+    ~JackBridge() {
+#ifdef _WITH_MIDI_BRIDGE_
+        release_midi_ports();
+#endif // _WITH_MIDI_BRIDGE_
+    }
 
     int process_callback(jack_nframes_t nframes) override {
         sample_t *ain[4];
         sample_t *aout[4];
+
+#ifdef _WITH_MIDI_BRIDGE_
+        process_midi_message(nframes);
+#endif // _WITH_MIDI_BRIDGE_
 
         if (*shmDriverStatus != JB_DRV_STATUS_STARTED) {
             // Driver isn't working. Just return zero buffer;
@@ -157,6 +175,135 @@ private:
         }
         return nframes;
     }
+
+#ifdef _WITH_MIDI_BRIDGE_
+    RtMidiOut  **midiout;
+    RtMidiIn   **midiin;
+    int nOutPorts, nInPorts;
+    char** nameMin;
+    char** nameMout;
+
+    int get_num_ports(unsigned long flags) {
+        int num;
+        const char** ports = jack_get_ports(client, "system", ".*raw midi", flags);
+        if (!ports) {
+            return 0;
+        }
+
+        for(num=0;*ports != NULL; ports++,num++) {
+#if 0 // For DEBUG
+            jack_port_t* p = jack_port_by_name(client, *ports);
+            std::cout << ";" << *ports << ";" << jack_port_short_name(p) << ";" << jack_port_type(p) << std::endl;
+#endif
+        }
+        return num;
+    }
+
+    void create_midi_ports(const char* name) {
+        char buf[256];
+
+        // create bridge from Jack to CoreMIDI
+        nOutPorts = get_num_ports(JackPortIsOutput);
+        midiout = (RtMidiOut**)malloc(sizeof(RtMidiOut*)*nOutPorts);
+        nameMin = (char**)malloc(sizeof(char*)*(nOutPorts+1));
+
+        for(int n=0; n<nOutPorts; n++) {
+            try {
+                midiout[n] = new RtMidiOut(RtMidi::MACOSX_CORE);
+                snprintf(buf, 256, "%s %d", name, n+1);
+                midiout[n]->openVirtualPort(buf);
+            } catch ( RtMidiError &error ) {
+                error.printMessage();
+                exit( EXIT_FAILURE );
+            }
+
+            nameMin[n] = (char*)malloc(256);
+            snprintf(nameMin[n], 256, "event_in_%d", n+1);
+        }
+        nameMin[nOutPorts] = NULL;
+
+        // create bridge from CoreMIDI to Jack
+        nInPorts = get_num_ports(JackPortIsInput);
+        midiin = (RtMidiIn**)malloc(sizeof(RtMidiIn*)*nInPorts);
+        nameMout = (char**)malloc(sizeof(char*)*(nInPorts+1));
+
+        for(int n=0; n<nInPorts; n++) {
+            try {
+                midiin[n] = new RtMidiIn(RtMidi::MACOSX_CORE);
+                snprintf(buf, 256, "%s %d", name, n+1);
+                midiin[n]->openVirtualPort(buf);
+                midiin[n]->ignoreTypes(false, false, false);
+            } catch ( RtMidiError &error ) {
+                error.printMessage();
+                exit( EXIT_FAILURE );
+            }
+
+            nameMout[n] = (char*)malloc(256);
+            snprintf(nameMout[n], 256, "event_out_%d", n+1);
+        }
+        nameMout[nInPorts] = NULL;
+    }
+
+    void release_midi_ports() {
+        // release bridge from Jack to CoreMIDI
+        for(int n=0; n<nOutPorts; n++) {
+            delete midiout[n];
+            free(nameMin[n]);
+        }
+        free(midiout);
+        free(nameMin);
+
+        // release bridge from CoreMIDI to Jack
+        for(int n=0; n<nInPorts; n++) {
+            delete midiin[n];
+            free(nameMout[n]);
+        }
+        free(midiin);
+        free(nameMout);
+    }
+
+    void process_midi_message(jack_nframes_t nframes) {
+        void *min, *mout;
+        int count;
+        jack_midi_event_t event;
+        std::vector< unsigned char > message;
+        jack_midi_data_t* buf;
+
+        // process bridge from Jack to CoreMIDI
+        for(int n=0; n<nOutPorts; n++) {
+            min = jack_port_get_buffer(midiIn[n], nframes);
+            count = jack_midi_get_event_count(min);
+            for(int i=0; i<count; i++) {
+                jack_midi_event_get(&event, min, i);
+                message.clear();
+                for (int j=0; j<event.size; j++) {
+                    message.push_back(event.buffer[j]);
+                }
+                if (message.size() > 0) {
+                    midiout[n]->sendMessage(&message);
+                }
+            }
+        }
+
+        // process bridge from CoreMIDI to Jack
+        for(int n=0; n<nInPorts; n++) {
+            mout = jack_port_get_buffer(midiOut[n], nframes);
+            jack_midi_clear_buffer(mout);
+            midiin[n]->getMessage(&message);
+            while(message.size() > 0) {
+                buf = jack_midi_event_reserve(mout, 0, message.size());
+                if (buf != NULL) {
+                    for(int i=0; i<message.size(); i++) {
+                        buf[i] = message[i];
+                    }
+                } else {
+                    fprintf(stderr, "ERROR: jack_midi_event_reserve failed()\n");
+                }
+                midiin[n]->getMessage(&message);
+            }
+        }
+    }
+#endif // _WITH_MIDI_BRIDGE_
 };
 
 int
