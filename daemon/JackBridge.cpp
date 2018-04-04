@@ -29,7 +29,6 @@ SOFTWARE.
 #include <string>
 #include <sstream>
 #include <cstdlib>
-#include <jack/jack.h>
 #include "jackClient.hpp"
 #include "JackBridge.h"
 #ifdef _WITH_MIDI_BRIDGE_
@@ -54,7 +53,7 @@ public:
 
         isActive = false;
         isSyncMode = true; // FIXME: should be parameterized
-        isVerbose = false; // FIXME: should be parameterized
+        isVerbose = (getenv("JACKBRIDGE_DEBUG")) ? true : false;
         FrameNumber = 0;
         FramesPerBuffer = STRBUFNUM/2;
         *shmBufferSize = STRBUFSZ;
@@ -67,6 +66,17 @@ public:
         register_ports(nameAin, nameAout, NULL, NULL);
 #endif // _WITH_MIDI_BRIDGE_
 
+        // For DEBUG
+        lastHostTime = 0;
+        struct mach_timebase_info theTimeBaseInfo;
+        mach_timebase_info(&theTimeBaseInfo);
+        double theHostClockFrequency = theTimeBaseInfo.denom / theTimeBaseInfo.numer;
+        theHostClockFrequency *= 1000000000.0;
+        HostTicksPerFrame = theHostClockFrequency / SampleRate;
+        if (isVerbose) {
+            printf("JackBridge#%d: Start with samplerate:%d Hz, buffersize:%d bytes\n",
+                instance, SampleRate, BufSize);
+        }
     }
 
     ~JackBridge() {
@@ -88,12 +98,8 @@ public:
             return 0;
         }
 
-        if (isVerbose && ((ncalls++) % 500) == 0) {
-            printf("JackBridge#%d: FRAME %llu : Write0: %llu Read0: %llu Write1: %llu Read0: %llu\n",
-                 instance, FrameNumber,
-                 *shmWriteFrameNumber[0], *shmReadFrameNumber[0],
-                 *shmWriteFrameNumber[1], *shmReadFrameNumber[1]);
-        }
+        // For DEBUG
+        check_progress();
 
         if (!isActive) {
             ncalls = 0;
@@ -145,6 +151,9 @@ public:
 
 private:
     bool isActive, isSyncMode, isVerbose;
+    bool showmsg;
+    uint64_t lastHostTime;
+    double HostTicksPerFrame;
     int64_t ncalls;
 
     int sendToCoreAudio(float** in,int nframes) {
@@ -304,6 +313,31 @@ private:
         }
     }
 #endif // _WITH_MIDI_BRIDGE_
+
+    void check_progress() {
+        if (isVerbose && ((ncalls++) % 500) == 0) {
+            printf("JackBridge#%d: FRAME %llu : Write0: %llu Read0: %llu Write1: %llu Read0: %llu\n",
+                 instance, FrameNumber,
+                 *shmWriteFrameNumber[0], *shmReadFrameNumber[0],
+                 *shmWriteFrameNumber[1], *shmReadFrameNumber[1]);
+        }
+
+        int diff = *shmWriteFrameNumber[0] - FrameNumber;
+        int interval = (mach_absolute_time() - lastHostTime) / HostTicksPerFrame;
+        if (showmsg) {
+            if ((diff >= (STRBUFNUM/2))||(interval >= BufSize*2))  {
+                printf("WARNING: miss synchronization detected at FRAME %llu (diff=%d, interval=%d)\n",
+                    FrameNumber, diff, interval);
+                fflush(stdout);
+                showmsg = false;
+            }
+        } else {
+            if (diff < (STRBUFNUM/2)) {
+                showmsg = true;
+            }
+        }
+        lastHostTime = mach_absolute_time();
+    }
 };
 
 int
