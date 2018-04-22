@@ -1448,6 +1448,7 @@ void	SA_Device::_HW_Close()
 
 kern_return_t	SA_Device::_HW_StartIO()
 {
+    syslog(LOG_WARNING, "JackBridge: Starting IO Device. ");
     if (mDriverStatus == JB_DRV_STATUS_INIT) {
         return kAudioHardwareNotRunningError;
     }
@@ -1458,6 +1459,7 @@ kern_return_t	SA_Device::_HW_StartIO()
 
 void	SA_Device::_HW_StopIO()
 {
+    syslog(LOG_WARNING, "JackBridge: Stopping IO Device. ");
     *shmDriverStatus = mDriverStatus = JB_DRV_STATUS_ACTIVE;
 	return;
 }

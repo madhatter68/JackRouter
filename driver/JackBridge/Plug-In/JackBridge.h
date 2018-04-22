@@ -58,18 +58,23 @@
 // 0x0190      :    Current Frame Number(coreAudio read)
 // 0x0198      :    Current Frame Number(coreAudio write)
 // 0x10000     : Upstream buffer #0 (Driver -> Application)
-// 0x14000     : Downstream buffer #0 (Application -> Driver)
-// 0x18000     : Upstream buffer #0 (Driver -> Application)
-// 0x1c000     : Downstream buffer #0 (Application -> Driver)
+// 0x18000     : Downstream buffer #0 (Application -> Driver)
+// 0x20000     : Upstream buffer #0 (Driver -> Application)
+// 0x28000     : Downstream buffer #0 (Application -> Driver)
 
 typedef float sample_t;
 #define AUDIO_SAMPLE_SIZE (sizeof(sample_t))
 
-#define STRBUFSZ            (0x4000) // 16KB Ring buffer
+#define STRBUFSZ            (0x8000) // 32KB Ring buffer
 #define STRBUFNUM           (STRBUFSZ/AUDIO_SAMPLE_SIZE) // 1024 entries
-#define REGSMAP_SIZE        (0x20000)
-#define REGSMAP_BOUNDARY    (0x20000)
-#define JACK_SHMSIZE        (0x40000)
+#define REGSMAP_SIZE        (0x30000)
+#define REGSMAP_BOUNDARY    (0x30000)
+#define JACK_SHMSIZE        (0x60000)
+#define STRBUF_U0           (0x10000)
+#define STRBUF_UP(i)        (0x10000*(i)+0x10000)
+#define STRBUF_DOWN(i)      (0x10000*(i)+0x18000)
+
+#define JACK_SHMPATH        "/JackBridge"
 
 #ifdef _ERROR_SYSLOG_
 #define ERROR(pri, str, code) syslog(pri, str, code);
@@ -100,19 +105,28 @@ protected:
     int create_shm() {
         struct stat stat;
         ERROR(LOG_INFO, "JackBridge: Initializing shared memory to communicate with jack(%d).", 0);
-        shm_fd = shm_open("/JackBridge", O_CREAT|O_RDWR, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH);
+        shm_fd = shm_open(JACK_SHMPATH, O_CREAT|O_RDWR, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH);
         if (shm_fd < 0) {
+            ERROR(LOG_ERR, "shm cannot be opened with %s.\n", strerror(errno));
             return -1;
         }
         
         if (fstat(shm_fd, &stat) < 0) {
+            ERROR(LOG_ERR, "Couldn't get shm stat with %s.\n", strerror(errno));
+            close(shm_fd);
             return -1;
         }
         
         if (stat.st_size != JACK_SHMSIZE) {
             if (ftruncate(shm_fd, JACK_SHMSIZE) == -1) {
-                ERROR(LOG_ERR, "shm cannot be truncated with %s.\n", strerror(errno));
-                return -1;
+                ERROR(LOG_INFO, "shm cannot be truncated with %s. Try to recreate shm.\n", strerror(errno));
+                close(shm_fd);
+                shm_unlink(JACK_SHMPATH);
+                shm_fd = shm_open(JACK_SHMPATH, O_CREAT|O_RDWR, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH);
+                if (shm_fd < 0) {
+                    ERROR(LOG_ERR, "shm cannot be recreated with %s.\n", strerror(errno));
+                    return -1;
+                }
             }
             ERROR(LOG_INFO, "Recreated shm because shm size is not matched as expected. (%d)\n", 0);
         }
@@ -123,7 +137,7 @@ protected:
     int attach_shm() {
         struct stat stat;
         
-        shm_fd = shm_open("/JackBridge", O_RDWR, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH);
+        shm_fd = shm_open(JACK_SHMPATH, O_RDWR, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH);
         if (shm_fd < 0) {
             ERROR(LOG_ERR, "shm_open() failed with %s.\n", strerror(errno));
             return -1;
@@ -145,10 +159,10 @@ protected:
             return -1;
         }
         
-        buf_up[0]   = (sample_t*)(shm_base + 0x10000);
-        buf_down[0] = (sample_t*)(shm_base + 0x14000);
-        buf_up[1]   = (sample_t*)(shm_base + 0x18000);
-        buf_down[1] = (sample_t*)(shm_base + 0x1c000);
+        buf_up[0]   = (sample_t*)(shm_base + STRBUF_UP(0));
+        buf_down[0] = (sample_t*)(shm_base + STRBUF_DOWN(0));
+        buf_up[1]   = (sample_t*)(shm_base + STRBUF_UP(1));
+        buf_down[1] = (sample_t*)(shm_base + STRBUF_DOWN(1));
         
         shmNumberTimeStamps = (uint64_t*)(shm_base+0x100);
         shmZeroHostTime = (uint64_t*)(shm_base+0x108);

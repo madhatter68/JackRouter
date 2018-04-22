@@ -41,6 +41,7 @@
 		2DD7AA8015EC3DB800C67AE1 /* CACFObject.h in Headers */ = {isa = PBXBuildFile; fileRef = 2DD7AA7F15EC3DB800C67AE1 /* CACFObject.h */; };
 		2DD7AA9715EC551600C67AE1 /* SA_Device.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 2DD7AA9515EC551500C67AE1 /* SA_Device.cpp */; };
 		2DD7AA9815EC551600C67AE1 /* SA_Device.h in Headers */ = {isa = PBXBuildFile; fileRef = 2DD7AA9615EC551600C67AE1 /* SA_Device.h */; };
+		8D2201902074FC650060D7BA /* JackBridge.h in Headers */ = {isa = PBXBuildFile; fileRef = 8D22018F2074FC640060D7BA /* JackBridge.h */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -82,6 +83,7 @@
 		2DD7AA7F15EC3DB800C67AE1 /* CACFObject.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = CACFObject.h; sourceTree = "<group>"; };
 		2DD7AA9515EC551500C67AE1 /* SA_Device.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SA_Device.cpp; sourceTree = "<group>"; };
 		2DD7AA9615EC551600C67AE1 /* SA_Device.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = SA_Device.h; sourceTree = "<group>"; };
+		8D22018F2074FC640060D7BA /* JackBridge.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = JackBridge.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -176,6 +178,7 @@
 		2DED182C15C356BA0091BE97 /* Plug-In */ = {
 			isa = PBXGroup;
 			children = (
+				8D22018F2074FC640060D7BA /* JackBridge.h */,
 				2DD7AA9515EC551500C67AE1 /* SA_Device.cpp */,
 				2DD7AA9615EC551600C67AE1 /* SA_Device.h */,
 				2D76D97815E498EB00FF0F33 /* SA_Object.cpp */,
@@ -207,6 +210,7 @@
 				2DD7AA3115EAFD5100C67AE1 /* CAException.h in Headers */,
 				2DD7AA3315EAFD5100C67AE1 /* CAGuard.h in Headers */,
 				2DD7AA3515EAFD5100C67AE1 /* CAHostTimeBase.h in Headers */,
+				8D2201902074FC650060D7BA /* JackBridge.h in Headers */,
 				2DD7AA3715EAFD5100C67AE1 /* CAMutex.h in Headers */,
 				2DD7AA7E15EC20FD00C67AE1 /* CADispatchQueue.h in Headers */,
 				2DD7AA8015EC3DB800C67AE1 /* CACFObject.h in Headers */,

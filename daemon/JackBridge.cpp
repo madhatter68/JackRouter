@@ -95,6 +95,10 @@ public:
 
         if (*shmDriverStatus != JB_DRV_STATUS_STARTED) {
             // Driver isn't working. Just return zero buffer;
+            for(int i=0; i<4; i++) {
+                aout[i] = (sample_t*)jack_port_get_buffer(audioOut[i], nframes);
+                bzero(aout[i], STRBUFSZ);
+            }
             return 0;
         }
 
@@ -315,20 +319,24 @@ private:
 #endif // _WITH_MIDI_BRIDGE_
 
     void check_progress() {
+#if 0
         if (isVerbose && ((ncalls++) % 500) == 0) {
             printf("JackBridge#%d: FRAME %llu : Write0: %llu Read0: %llu Write1: %llu Read0: %llu\n",
                  instance, FrameNumber,
                  *shmWriteFrameNumber[0], *shmReadFrameNumber[0],
                  *shmWriteFrameNumber[1], *shmReadFrameNumber[1]);
         }
+#endif
 
         int diff = *shmWriteFrameNumber[0] - FrameNumber;
         int interval = (mach_absolute_time() - lastHostTime) / HostTicksPerFrame;
         if (showmsg) {
             if ((diff >= (STRBUFNUM/2))||(interval >= BufSize*2))  {
-                printf("WARNING: miss synchronization detected at FRAME %llu (diff=%d, interval=%d)\n",
-                    FrameNumber, diff, interval);
-                fflush(stdout);
+                if (isVerbose) {
+                    printf("WARNING: miss synchronization detected at FRAME %llu (diff=%d, interval=%d)\n",
+                        FrameNumber, diff, interval);
+                    fflush(stdout);
+                }
                 showmsg = false;
             }
         } else {
