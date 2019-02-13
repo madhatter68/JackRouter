@@ -64,12 +64,17 @@
 
 typedef float sample_t;
 #define AUDIO_SAMPLE_SIZE (sizeof(sample_t))
+#define NUM_INPUT_STREAMS   1
+#define NUM_OUTPUT_STREAMS  2
+#define MAX_STREAMS         2
+#define MAX_CHANNELS        ((MAX_STREAMS)*2)
+#define NUM_INSTANCES       1
 
 #define STRBUFSZ            (0x8000) // 32KB Ring buffer
 #define STRBUFNUM           (STRBUFSZ/AUDIO_SAMPLE_SIZE) // 1024 entries
-#define REGSMAP_SIZE        (0x30000)
-#define REGSMAP_BOUNDARY    (0x30000)
-#define JACK_SHMSIZE        (0x60000)
+#define REGSMAP_SIZE        (0x10000*(MAX_STREAMS)+0x10000)
+#define REGSMAP_BOUNDARY    REGSMAP_SIZE
+#define JACK_SHMSIZE        (REGSMAP_SIZE*NUM_INSTANCES)
 #define STRBUF_U0           (0x10000)
 #define STRBUF_UP(i)        (0x10000*(i)+0x10000)
 #define STRBUF_DOWN(i)      (0x10000*(i)+0x18000)
@@ -86,8 +91,8 @@ class JackBridgeDriverIF {
 protected:
     uint32_t instance;
     int shm_fd;
-    sample_t *buf_up[2];
-    sample_t *buf_down[2];
+    sample_t *buf_up[MAX_STREAMS];
+    sample_t *buf_down[MAX_STREAMS];
     uint64_t   FrameNumber;
     int        FramesPerBuffer;
     volatile uint64_t     *shmNumberTimeStamps;
@@ -99,8 +104,8 @@ protected:
 #define JB_DRV_STATUS_INIT      0
 #define JB_DRV_STATUS_ACTIVE    1
 #define JB_DRV_STATUS_STARTED   2
-    volatile uint64_t     *shmReadFrameNumber[2];
-    volatile uint64_t     *shmWriteFrameNumber[2];
+    volatile uint64_t     *shmReadFrameNumber[MAX_STREAMS];
+    volatile uint64_t     *shmWriteFrameNumber[MAX_STREAMS];
 
     int create_shm() {
         struct stat stat;
@@ -126,6 +131,9 @@ protected:
                 if (shm_fd < 0) {
                     ERROR(LOG_ERR, "shm cannot be recreated with %s.\n", strerror(errno));
                     return -1;
+                }
+                if (ftruncate(shm_fd, JACK_SHMSIZE) == -1) {
+                    ERROR(LOG_INFO, "shm cannot be truncated with %s.\n", strerror(errno));
                 }
             }
             ERROR(LOG_INFO, "Recreated shm because shm size is not matched as expected. (%d)\n", 0);
@@ -158,22 +166,21 @@ protected:
             ERROR(LOG_ERR, "mmap() failed with %s\n", strerror(errno));
             return -1;
         }
-        
-        buf_up[0]   = (sample_t*)(shm_base + STRBUF_UP(0));
-        buf_down[0] = (sample_t*)(shm_base + STRBUF_DOWN(0));
-        buf_up[1]   = (sample_t*)(shm_base + STRBUF_UP(1));
-        buf_down[1] = (sample_t*)(shm_base + STRBUF_DOWN(1));
-        
+
         shmNumberTimeStamps = (uint64_t*)(shm_base+0x100);
         shmZeroHostTime = (uint64_t*)(shm_base+0x108);
         shmSeed = (uint64_t*)(shm_base+0x110);
         shmSyncMode = (uint64_t*)(shm_base+0x118);
         shmBufferSize = (uint64_t*)(shm_base+0x120);
         shmDriverStatus = (uint64_t*)(shm_base+0x128);
-        shmReadFrameNumber[0] = (uint64_t*)(shm_base+0x180);
-        shmWriteFrameNumber[0] = (uint64_t*)(shm_base+0x188);
-        shmReadFrameNumber[1] = (uint64_t*)(shm_base+0x190);
-        shmWriteFrameNumber[1] = (uint64_t*)(shm_base+0x198);
+
+        for(int i=0; i<MAX_STREAMS; i++) {
+            buf_up[i]   = (sample_t*)(shm_base + STRBUF_UP(i));
+            buf_down[i] = (sample_t*)(shm_base + STRBUF_DOWN(i));
+            shmReadFrameNumber[i] = (uint64_t*)(shm_base+0x180);
+            shmWriteFrameNumber[i] = (uint64_t*)(shm_base+0x188+i*0x10);
+        }
+        
         return 0;
     }
     

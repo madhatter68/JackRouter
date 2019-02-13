@@ -79,15 +79,19 @@ SA_Device::SA_Device(AudioObjectID inObjectID, UInt32 instance)
 	mStartCount(0),
 	mSampleRateShadow(48000),
 	mRingBufferFrameSize(0),
-	mInputStreamObjectID(SA_ObjectMap::GetNextObjectID()),
-	mInputStreamIsActive(true),
-	mInputStreamRingBuffer(NULL),
-	mOutputStreamObjectID(SA_ObjectMap::GetNextObjectID()),
-	mOutputStreamObjectID2(SA_ObjectMap::GetNextObjectID()),
-	mOutputStreamIsActive(true),
-	mOutputStreamRingBuffer(NULL),
 	mDriverStatus(JB_DRV_STATUS_INIT)
 {
+	for(int i=0; i<kNumberOfInputSubObjects; i++)
+    {
+	    mInputStreamObjectID[i] = SA_ObjectMap::GetNextObjectID();
+	    mInputStreamIsActive[i] = true;
+    }
+
+	for(int i=0; i<kNumberOfOutputSubObjects; i++)
+    {
+	    mOutputStreamObjectID[i] = SA_ObjectMap::GetNextObjectID();
+	    mOutputStreamIsActive[i] = true;
+    }
 }
 
 void	SA_Device::Activate()
@@ -96,9 +100,15 @@ void	SA_Device::Activate()
 	_HW_Open();
 
 	//	map the subobject IDs to this object
-	SA_ObjectMap::MapObject(mInputStreamObjectID, this);
-	SA_ObjectMap::MapObject(mOutputStreamObjectID, this);
-	SA_ObjectMap::MapObject(mOutputStreamObjectID2, this);
+	for(int i=0; i<kNumberOfInputSubObjects; i++)
+    {
+	    SA_ObjectMap::MapObject(mInputStreamObjectID[i], this);
+    }
+
+	for(int i=0; i<kNumberOfOutputSubObjects; i++)
+    {
+	    SA_ObjectMap::MapObject(mOutputStreamObjectID[i], this);
+    }
 	
 	//	call the super-class, which just marks the object as active
 	SA_Object::Activate();
@@ -123,9 +133,15 @@ void	SA_Device::Deactivate()
 	SA_Object::Deactivate();
 	
 	//	unmap the subobject IDs
-	SA_ObjectMap::UnmapObject(mInputStreamObjectID, this);
-	SA_ObjectMap::UnmapObject(mOutputStreamObjectID, this);
-	SA_ObjectMap::UnmapObject(mOutputStreamObjectID2, this);
+	for(int i=0; i<kNumberOfInputSubObjects; i++)
+    {
+	    SA_ObjectMap::UnmapObject(mInputStreamObjectID[i], this);
+    }
+
+	for(int i=0; i<kNumberOfOutputSubObjects; i++)
+    {
+	    SA_ObjectMap::UnmapObject(mOutputStreamObjectID[i], this);
+    }
 	
 	//	close the connection to the driver
 	_HW_Close();
@@ -135,8 +151,48 @@ SA_Device::~SA_Device()
 {
 }
 
-#pragma mark Property Operations
+bool	SA_Device::IsStreamObjectID(AudioObjectID inObjectID) const
+{
+	for(int i=0; i<kNumberOfInputSubObjects; i++)
+    {
+        if (inObjectID == mInputStreamObjectID[i])
+            return true;
+    }
 
+	for(int i=0; i<kNumberOfOutputSubObjects; i++)
+    {
+        if (inObjectID == mOutputStreamObjectID[i])
+            return true;
+    }
+    return false;
+}
+
+bool 	SA_Device::IsInputStreamID(AudioObjectID inObjectID) const
+{
+	for(int i=0; i<kNumberOfInputSubObjects; i++)
+    {
+        if (inObjectID == mInputStreamObjectID[i])
+            return true;
+    }
+    return false;
+}
+
+int 	SA_Device::getStreamID(AudioObjectID inObjectID) const
+{
+	for(int i=0; i<kNumberOfInputSubObjects; i++)
+    {
+        if (inObjectID == mInputStreamObjectID[i])
+            return i;
+    }
+	for(int i=0; i<kNumberOfOutputSubObjects; i++)
+    {
+        if (inObjectID == mOutputStreamObjectID[i])
+            return i;
+    }
+    return 0;
+}
+
+#pragma mark Property Operations
 bool	SA_Device::HasProperty(AudioObjectID inObjectID, pid_t inClientPID, const AudioObjectPropertyAddress& inAddress) const
 {
 	//	This object implements several API-level objects. So the first thing to do is to figure out
@@ -147,7 +203,7 @@ bool	SA_Device::HasProperty(AudioObjectID inObjectID, pid_t inClientPID, const A
 	{
 		theAnswer = Device_HasProperty(inObjectID, inClientPID, inAddress);
 	}
-	else if((inObjectID == mInputStreamObjectID) || (inObjectID == mOutputStreamObjectID) || (inObjectID == mOutputStreamObjectID2))
+	else if(IsStreamObjectID(inObjectID))
 	{
 		theAnswer = Stream_HasProperty(inObjectID, inClientPID, inAddress);
 	}
@@ -165,7 +221,7 @@ bool	SA_Device::IsPropertySettable(AudioObjectID inObjectID, pid_t inClientPID, 
 	{
 		theAnswer = Device_IsPropertySettable(inObjectID, inClientPID, inAddress);
 	}
-	else if((inObjectID == mInputStreamObjectID) || (inObjectID == mOutputStreamObjectID) || (inObjectID == mOutputStreamObjectID2))
+	else if(IsStreamObjectID(inObjectID))
 	{
 		theAnswer = Stream_IsPropertySettable(inObjectID, inClientPID, inAddress);
 	}
@@ -183,7 +239,7 @@ UInt32	SA_Device::GetPropertyDataSize(AudioObjectID inObjectID, pid_t inClientPI
 	{
 		theAnswer = Device_GetPropertyDataSize(inObjectID, inClientPID, inAddress, inQualifierDataSize, inQualifierData);
 	}
-	else if((inObjectID == mInputStreamObjectID) || (inObjectID == mOutputStreamObjectID) || (inObjectID == mOutputStreamObjectID2))
+	else if(IsStreamObjectID(inObjectID))
 	{
 		theAnswer = Stream_GetPropertyDataSize(inObjectID, inClientPID, inAddress, inQualifierDataSize, inQualifierData);
 	}
@@ -201,7 +257,7 @@ void	SA_Device::GetPropertyData(AudioObjectID inObjectID, pid_t inClientPID, con
 	{
 		Device_GetPropertyData(inObjectID, inClientPID, inAddress, inQualifierDataSize, inQualifierData, inDataSize, outDataSize, outData);
 	}
-	else if((inObjectID == mInputStreamObjectID) || (inObjectID == mOutputStreamObjectID) || (inObjectID == mOutputStreamObjectID2))
+	else if(IsStreamObjectID(inObjectID))
 	{
 		Stream_GetPropertyData(inObjectID, inClientPID, inAddress, inQualifierDataSize, inQualifierData, inDataSize, outDataSize, outData);
 	}
@@ -217,7 +273,7 @@ void	SA_Device::SetPropertyData(AudioObjectID inObjectID, pid_t inClientPID, con
 	{
 		Device_SetPropertyData(inObjectID, inClientPID, inAddress, inQualifierDataSize, inQualifierData, inDataSize, inData);
 	}
-	else if((inObjectID == mInputStreamObjectID) || (inObjectID == mOutputStreamObjectID) || (inObjectID == mOutputStreamObjectID2))
+	else if(IsStreamObjectID(inObjectID))
 	{
 		Stream_SetPropertyData(inObjectID, inClientPID, inAddress, inQualifierDataSize, inQualifierData, inDataSize, inData);
 	}
@@ -492,18 +548,17 @@ void	SA_Device::Device_GetPropertyData(AudioObjectID inObjectID, pid_t inClientP
 					}
 					
 					//	fill out the list with as many objects as requested, which is everything
-					if(theNumberItemsToFetch > 0)
-					{
-						reinterpret_cast<AudioObjectID*>(outData)[0] = mInputStreamObjectID;
-					}
-					if(theNumberItemsToFetch > 1)
-					{
-						reinterpret_cast<AudioObjectID*>(outData)[1] = mOutputStreamObjectID;
-					}
-					if(theNumberItemsToFetch > 2)
-					{
-						reinterpret_cast<AudioObjectID*>(outData)[2] = mOutputStreamObjectID2;
-					}
+                    for (int i=0; i<theNumberItemsToFetch; i++)
+                    {
+					    if(i < kNumberOfInputSubObjects)
+                        {
+						    reinterpret_cast<AudioObjectID*>(outData)[i] = mInputStreamObjectID[i];
+					    }
+                        else if(i < kNumberOfSubObjects)
+                        { 
+						    reinterpret_cast<AudioObjectID*>(outData)[i] = mOutputStreamObjectID[i-kNumberOfInputSubObjects];
+                        }
+                    }
 					break;
 					
 				case kAudioObjectPropertyScopeInput:
@@ -514,10 +569,13 @@ void	SA_Device::Device_GetPropertyData(AudioObjectID inObjectID, pid_t inClientP
 					}
 					
 					//	fill out the list with the right objects
-					if(theNumberItemsToFetch > 0)
-					{
-						reinterpret_cast<AudioObjectID*>(outData)[0] = mInputStreamObjectID;
-					}
+                    for (int i=0; i<theNumberItemsToFetch; i++)
+                    {
+					    if(i < kNumberOfInputSubObjects)
+                        {
+						    reinterpret_cast<AudioObjectID*>(outData)[i] = mInputStreamObjectID[i];
+					    }
+                    }
 					break;
 					
 				case kAudioObjectPropertyScopeOutput:
@@ -528,14 +586,13 @@ void	SA_Device::Device_GetPropertyData(AudioObjectID inObjectID, pid_t inClientP
 					}
 					
 					//	fill out the list with the right objects
-					if(theNumberItemsToFetch > 0)
-					{
-						reinterpret_cast<AudioObjectID*>(outData)[0] = mOutputStreamObjectID;
-					}
-					if(theNumberItemsToFetch > 1)
-					{
-						reinterpret_cast<AudioObjectID*>(outData)[1] = mOutputStreamObjectID2;
-					}
+                    for (int i=0; i<theNumberItemsToFetch; i++)
+                    {
+					    if(i < kNumberOfOutputSubObjects)
+                        {
+						    reinterpret_cast<AudioObjectID*>(outData)[i] = mOutputStreamObjectID[i];
+					    }
+                    }
 					break;
 			};
 			
@@ -680,18 +737,17 @@ void	SA_Device::Device_GetPropertyData(AudioObjectID inObjectID, pid_t inClientP
 					}
 					
 					//	fill out the list with as many objects as requested
-					if(theNumberItemsToFetch > 0)
-					{
-						reinterpret_cast<AudioObjectID*>(outData)[0] = mInputStreamObjectID;
-					}
-					if(theNumberItemsToFetch > 1)
-					{
-						reinterpret_cast<AudioObjectID*>(outData)[1] = mOutputStreamObjectID;
-					}
-					if(theNumberItemsToFetch > 2)
-					{
-						reinterpret_cast<AudioObjectID*>(outData)[2] = mOutputStreamObjectID2;
-					}
+                    for (int i=0; i<theNumberItemsToFetch; i++)
+                    {
+					    if(i < kNumberOfInputStreams)
+                        {
+						    reinterpret_cast<AudioObjectID*>(outData)[i] = mInputStreamObjectID[i];
+					    }
+                        else if(i < kNumberOfStreams)
+                        { 
+						    reinterpret_cast<AudioObjectID*>(outData)[i] = mOutputStreamObjectID[i-kNumberOfInputStreams];
+                        }
+                    }
 					break;
 					
 				case kAudioObjectPropertyScopeInput:
@@ -702,10 +758,13 @@ void	SA_Device::Device_GetPropertyData(AudioObjectID inObjectID, pid_t inClientP
 					}
 					
 					//	fill out the list with as many objects as requested
-					if(theNumberItemsToFetch > 0)
-					{
-						reinterpret_cast<AudioObjectID*>(outData)[0] = mInputStreamObjectID;
-					}
+                    for (int i=0; i<theNumberItemsToFetch; i++)
+                    {
+					    if(i < kNumberOfInputStreams)
+                        {
+						    reinterpret_cast<AudioObjectID*>(outData)[i] = mInputStreamObjectID[i];
+					    }
+                    }
 					break;
 					
 				case kAudioObjectPropertyScopeOutput:
@@ -716,14 +775,13 @@ void	SA_Device::Device_GetPropertyData(AudioObjectID inObjectID, pid_t inClientP
 					}
 					
 					//	fill out the list with as many objects as requested
-					if(theNumberItemsToFetch > 0)
-					{
-						reinterpret_cast<AudioObjectID*>(outData)[0] = mOutputStreamObjectID;
-					}
-					if(theNumberItemsToFetch > 1)
-					{
-						reinterpret_cast<AudioObjectID*>(outData)[1] = mOutputStreamObjectID2;
-					}
+                    for (int i=0; i<theNumberItemsToFetch; i++)
+                    {
+					    if(i < kNumberOfOutputStreams)
+                        {
+						    reinterpret_cast<AudioObjectID*>(outData)[i] = mOutputStreamObjectID[i];
+					    }
+                    }
 					break;
 			};
 			
@@ -1035,7 +1093,8 @@ void	SA_Device::Stream_GetPropertyData(AudioObjectID inObjectID, pid_t inClientP
 				CAMutex::Locker theStateLocker(mStateMutex);
 				
 				//	return the requested value
-				*reinterpret_cast<UInt32*>(outData) = (inAddress.mScope == kAudioObjectPropertyScopeInput) ? mInputStreamIsActive : mOutputStreamIsActive;
+				*reinterpret_cast<UInt32*>(outData) = (inAddress.mScope == kAudioObjectPropertyScopeInput) ? mInputStreamIsActive[getStreamID(inObjectID)] : mOutputStreamIsActive[getStreamID(inObjectID)];
+				//*reinterpret_cast<UInt32*>(outData) = (inAddress.mScope == kAudioObjectPropertyScopeInput) ? mInputStreamIsActive : mOutputStreamIsActive;
 				outDataSize = sizeof(UInt32);
 			}
 			break;
@@ -1043,7 +1102,7 @@ void	SA_Device::Stream_GetPropertyData(AudioObjectID inObjectID, pid_t inClientP
 		case kAudioStreamPropertyDirection:
 			//	This returns whether the stream is an input stream or an output stream.
 			ThrowIf(inDataSize < sizeof(UInt32), CAException(kAudioHardwareBadPropertySizeError), "SA_Device::Stream_GetPropertyData: not enough space for the return value of kAudioStreamPropertyDirection for the stream");
-			*reinterpret_cast<UInt32*>(outData) = (inObjectID == mInputStreamObjectID) ? 1 : 0;
+			*reinterpret_cast<UInt32*>(outData) = IsInputStreamID(inObjectID) ? 1 : 0;
 			outDataSize = sizeof(UInt32);
 			break;
 
@@ -1052,7 +1111,7 @@ void	SA_Device::Stream_GetPropertyData(AudioObjectID inObjectID, pid_t inClientP
 			//	such as a speaker or headphones, or a microphone. Values for this property
 			//	are defined in <CoreAudio/AudioHardwareBase.h>
 			ThrowIf(inDataSize < sizeof(UInt32), CAException(kAudioHardwareBadPropertySizeError), "SA_Device::Stream_GetPropertyData: not enough space for the return value of kAudioStreamPropertyTerminalType for the stream");
-			*reinterpret_cast<UInt32*>(outData) = (inObjectID == mInputStreamObjectID) ? kAudioStreamTerminalTypeMicrophone : kAudioStreamTerminalTypeSpeaker;
+			*reinterpret_cast<UInt32*>(outData) = IsInputStreamID(inObjectID) ? kAudioStreamTerminalTypeMicrophone : kAudioStreamTerminalTypeSpeaker;
 			outDataSize = sizeof(UInt32);
 			break;
 
@@ -1062,7 +1121,7 @@ void	SA_Device::Stream_GetPropertyData(AudioObjectID inObjectID, pid_t inClientP
 			//	channels each, then the starting channel number for the first stream is 1
 			//	and ths starting channel number fo the second stream is 3.
 			ThrowIf(inDataSize < sizeof(UInt32), CAException(kAudioHardwareBadPropertySizeError), "SA_Device::Stream_GetPropertyData: not enough space for the return value of kAudioStreamPropertyStartingChannel for the stream");
-			*reinterpret_cast<UInt32*>(outData) = (inObjectID == mOutputStreamObjectID2) ? 3 : 1;
+			*reinterpret_cast<UInt32*>(outData) = getStreamID(inObjectID)*2+1;
 			//*reinterpret_cast<UInt32*>(outData) = 1;
 			outDataSize = sizeof(UInt32);
 			break;
@@ -1168,20 +1227,29 @@ void	SA_Device::Stream_SetPropertyData(AudioObjectID inObjectID, pid_t inClientP
 				bool theNewIsActive = *reinterpret_cast<const UInt32*>(inData) != 0;
 				
 				CAMutex::Locker theStateLocker(mStateMutex);
-				if(inObjectID == mInputStreamObjectID)
-				{
-					if(mInputStreamIsActive != theNewIsActive)
-					{
-						mInputStreamIsActive = theNewIsActive;
-					}
-				}
-				else
-				{
-					if(mOutputStreamIsActive != theNewIsActive)
-					{
-						mOutputStreamIsActive = theNewIsActive;
-					}
-				}
+                for(int i=0; i<kNumberOfInputStreams; i++)
+                {
+				    if(inObjectID == mInputStreamObjectID[i])
+                    {
+                        if(mInputStreamIsActive[i] != theNewIsActive)
+                        {
+                            mInputStreamIsActive[i] = theNewIsActive;
+                            break;
+                        }
+                    }
+                }
+                
+                for(int i=0; i<kNumberOfOutputStreams; i++)
+                {
+				    if(inObjectID == mOutputStreamObjectID[i])
+                    {
+                        if(mOutputStreamIsActive[i] != theNewIsActive)
+                        {
+                            mOutputStreamIsActive[i] = theNewIsActive;
+                            break;
+                        }
+                    }
+                }
 			}
 			break;
 			
@@ -1331,7 +1399,7 @@ void	SA_Device::BeginIOOperation(UInt32 inOperationID, UInt32 inIOBufferFrameSiz
 void	SA_Device::DoIOOperation(AudioObjectID inStreamObjectID, UInt32 inOperationID, UInt32 inIOBufferFrameSize, const AudioServerPlugInIOCycleInfo& inIOCycleInfo, void* ioMainBuffer, void* ioSecondaryBuffer)
 {
 	#pragma unused(inStreamObjectID, ioSecondaryBuffer)
-	int streamId = (inStreamObjectID == mOutputStreamObjectID2) ? 1 : 0;
+	int streamId = getStreamID(inStreamObjectID);
 	switch(inOperationID)
 	{
 		case kAudioServerPlugInIOOperationReadInput:

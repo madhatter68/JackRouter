@@ -91,7 +91,12 @@ public:
 
 protected:
 	virtual						~SA_Device();
-	
+
+private:	
+    bool	IsStreamObjectID(AudioObjectID inObjectID) const;
+    bool 	IsInputStreamID(AudioObjectID inObjectID) const;
+    int 	getStreamID(AudioObjectID inObjectID) const;
+
 #pragma mark Property Operations
 public:
 	virtual bool				HasProperty(AudioObjectID inObjectID, pid_t inClientPID, const AudioObjectPropertyAddress& inAddress) const;
@@ -156,13 +161,13 @@ public:
 private:
 	enum
 	{
-								kNumberOfSubObjects					= 3,
-								kNumberOfInputSubObjects			= 1,
-								kNumberOfOutputSubObjects			= 2,
+								kNumberOfSubObjects					= NUM_INPUT_STREAMS + NUM_OUTPUT_STREAMS,
+								kNumberOfInputSubObjects			= NUM_INPUT_STREAMS,
+								kNumberOfOutputSubObjects			= NUM_OUTPUT_STREAMS,
 								
-								kNumberOfStreams					= 3,
-								kNumberOfInputStreams				= 1,
-								kNumberOfOutputStreams				= 2,
+								kNumberOfStreams					= NUM_INPUT_STREAMS + NUM_OUTPUT_STREAMS,
+								kNumberOfInputStreams				= NUM_INPUT_STREAMS,
+								kNumberOfOutputStreams				= NUM_OUTPUT_STREAMS,
 								
 								kNumberOfControls					= 0
 	};
@@ -174,14 +179,11 @@ private:
 	UInt32						mRingBufferFrameSize;
 	UInt32                  	mDriverStatus;
 	
-	AudioObjectID				mInputStreamObjectID;
-	bool						mInputStreamIsActive;
-	Byte*						mInputStreamRingBuffer;
+	AudioObjectID				mInputStreamObjectID[NUM_INPUT_STREAMS];
+	bool						mInputStreamIsActive[NUM_INPUT_STREAMS];
 	
-	AudioObjectID				mOutputStreamObjectID;
-	AudioObjectID				mOutputStreamObjectID2;
-	bool						mOutputStreamIsActive;
-	Byte*						mOutputStreamRingBuffer;
+	AudioObjectID				mOutputStreamObjectID[NUM_OUTPUT_STREAMS];
+	bool						mOutputStreamIsActive[NUM_OUTPUT_STREAMS];
 
 #pragma mark jackrouter interfaces
 private:

@@ -26,6 +26,7 @@ SOFTWARE.
 
 #include <iostream>
 #include <unistd.h>
+#include <stdlib.h>
 #include <string>
 #include <sstream>
 #include <cstdlib>
@@ -39,9 +40,8 @@ SOFTWARE.
 /*
  * JackBridge.cpp
  */
-
-static const char* nameAin[]= {"input_0", "input_1", "input_2", "input_3", NULL};
-static const char* nameAout[] = {"output_0", "output_1", "output_2", "output_3", NULL};
+#define NUM_INPUT_CHANNELS  (NUM_INPUT_STREAMS*2)
+#define NUM_OUTPUT_CHANNELS (NUM_OUTPUT_STREAMS*2)
 
 class JackBridge : public JackClient, public JackBridgeDriverIF {
 public:
@@ -59,11 +59,12 @@ public:
         *shmBufferSize = STRBUFSZ;
         *shmSyncMode = 0;
 
+        config_audio_ports();
 #ifdef _WITH_MIDI_BRIDGE_
         create_midi_ports(name);
-        register_ports(nameAin, nameAout, (const char**)nameMin, (const char**)nameMout);
+        register_ports((const char**)nameAin, (const char**)nameAout, (const char**)nameMin, (const char**)nameMout);
 #else
-        register_ports(nameAin, nameAout, NULL, NULL);
+        register_ports((const char**)nameAin, (const char**)nameAout, NULL, NULL);
 #endif // _WITH_MIDI_BRIDGE_
 
         // For DEBUG
@@ -86,8 +87,8 @@ public:
     }
 
     int process_callback(jack_nframes_t nframes) override {
-        sample_t *ain[4];
-        sample_t *aout[4];
+        sample_t *ain[NUM_INPUT_CHANNELS];
+        sample_t *aout[NUM_OUTPUT_CHANNELS];
 
 #ifdef _WITH_MIDI_BRIDGE_
         process_midi_message(nframes);
@@ -95,7 +96,7 @@ public:
 
         if (*shmDriverStatus != JB_DRV_STATUS_STARTED) {
             // Driver isn't working. Just return zero buffer;
-            for(int i=0; i<4; i++) {
+            for(int i=0; i<NUM_OUTPUT_CHANNELS; i++) {
                 aout[i] = (sample_t*)jack_port_get_buffer(audioOut[i], nframes);
                 bzero(aout[i], STRBUFSZ);
             }
@@ -135,17 +136,15 @@ public:
             }
         }
 
-        ain[0] = (sample_t*)jack_port_get_buffer(audioIn[0], nframes);
-        ain[1] = (sample_t*)jack_port_get_buffer(audioIn[1], nframes);
-        ain[2] = (sample_t*)jack_port_get_buffer(audioIn[2], nframes);
-        ain[3] = (sample_t*)jack_port_get_buffer(audioIn[3], nframes);
+        for(int i=0; i<NUM_INPUT_CHANNELS; i++) {
+            ain[i] = (sample_t*)jack_port_get_buffer(audioIn[i], nframes);
+        }
         sendToCoreAudio(ain, nframes);
 
 
-        aout[0] = (sample_t*)jack_port_get_buffer(audioOut[0], nframes);
-        aout[1] = (sample_t*)jack_port_get_buffer(audioOut[1], nframes);
-        aout[2] = (sample_t*)jack_port_get_buffer(audioOut[2], nframes);
-        aout[3] = (sample_t*)jack_port_get_buffer(audioOut[3], nframes);
+        for(int i=0; i<NUM_OUTPUT_CHANNELS; i++) {
+            aout[i] = (sample_t*)jack_port_get_buffer(audioOut[i], nframes);
+        }
         receiveFromCoreAudio(aout, nframes);
 
         FrameNumber += nframes;
@@ -159,15 +158,17 @@ private:
     uint64_t lastHostTime;
     double HostTicksPerFrame;
     int64_t ncalls;
+    char** nameAin;
+    char** nameAout;
 
     int sendToCoreAudio(float** in,int nframes) {
         unsigned int offset = FrameNumber % FramesPerBuffer;
         // FIXME: should be consider buffer overwrapping
         for(int i=0; i<nframes; i++) {
-            *(buf_down[0]+(offset+i)*2) = in[0][i];
-            *(buf_down[0]+(offset+i)*2+1) = in[1][i];
-            *(buf_down[1]+(offset+i)*2) = in[2][i];
-            *(buf_down[1]+(offset+i)*2+1) = in[3][i];
+            for(int j=0; j<NUM_INPUT_STREAMS; j++) {
+                *(buf_down[j]+(offset+i)*2) = in[j*2][i];
+                *(buf_down[j]+(offset+i)*2+1) = in[j*2+1][i];
+            }
         }
         return nframes;
     }
@@ -177,16 +178,30 @@ private:
         unsigned int offset = (FrameNumber - nframes) % FramesPerBuffer;
         // FIXME: should be consider buffer overwrapping
         for(int i=0; i<nframes; i++) {
-            out[0][i] = *(buf_up[0]+(offset+i)*2);
-            out[1][i] = *(buf_up[0]+(offset+i)*2+1);
-            out[2][i] = *(buf_up[1]+(offset+i)*2);
-            out[3][i] = *(buf_up[1]+(offset+i)*2+1);
-            *(buf_up[0]+(offset+i)*2) = 0.0f;
-            *(buf_up[0]+(offset+i)*2+1) = 0.0f;
-            *(buf_up[1]+(offset+i)*2) = 0.0f;
-            *(buf_up[1]+(offset+i)*2+1) = 0.0f;
+            for(int j=0; j<NUM_OUTPUT_STREAMS; j++) {
+                out[j*2][i] = *(buf_up[j]+(offset+i)*2);
+                out[j*2+1][i] = *(buf_up[j]+(offset+i)*2+1);
+                *(buf_up[j]+(offset+i)*2) = 0.0f;
+                *(buf_up[j]+(offset+i)*2+1) = 0.0f;
+            }
         }
         return nframes;
+    }
+
+    void config_audio_ports() {
+        nameAin = (char**)malloc(sizeof(char*)*(NUM_INPUT_CHANNELS+1));
+        for(int i=0; i<NUM_INPUT_CHANNELS; i++) {
+            nameAin[i] = (char*)malloc(256);
+            snprintf(nameAin[i], 256, "input_%d", i+1);
+        }
+        nameAin[NUM_INPUT_CHANNELS] = nullptr;
+
+        nameAout = (char**)malloc(sizeof(char*)*(NUM_OUTPUT_CHANNELS+1));
+        for(int i=0; i<NUM_OUTPUT_CHANNELS; i++) {
+            nameAout[i] = (char*)malloc(256);
+            snprintf(nameAout[i], 256, "output_%d", i+1);
+        }
+        nameAout[NUM_OUTPUT_CHANNELS] = nullptr;
     }
 
 #ifdef _WITH_MIDI_BRIDGE_
@@ -214,9 +229,16 @@ private:
 
     void create_midi_ports(const char* name) {
         char buf[256];
+        char* nports;
 
         // create bridge from Jack to CoreMIDI
-        nOutPorts = get_num_ports(JackPortIsOutput);
+        nports = getenv("NUM_MIDI_OUTPUTS");
+        if (nports != nullptr) {
+            int n = atoi(nports);
+            nOutPorts = (n > MAX_MIDI_PORTS) ? MAX_MIDI_PORTS : n;
+        } else {
+            nOutPorts = get_num_ports(JackPortIsOutput);
+        }
         midiout = (RtMidiOut**)malloc(sizeof(RtMidiOut*)*nOutPorts);
         nameMin = (char**)malloc(sizeof(char*)*(nOutPorts+1));
 
@@ -236,7 +258,13 @@ private:
         nameMin[nOutPorts] = NULL;
 
         // create bridge from CoreMIDI to Jack
-        nInPorts = get_num_ports(JackPortIsInput);
+        nports = getenv("NUM_MIDI_INPUTS");
+        if (nports != nullptr) {
+            int n = atoi(nports);
+            nInPorts = (n > MAX_MIDI_PORTS) ? MAX_MIDI_PORTS : n;
+        } else {
+            nInPorts = get_num_ports(JackPortIsInput);
+        }
         midiin = (RtMidiIn**)malloc(sizeof(RtMidiIn*)*nInPorts);
         nameMout = (char**)malloc(sizeof(char*)*(nInPorts+1));
 
@@ -351,7 +379,7 @@ private:
 int
 main(int argc, char** argv)
 {
-    JackBridge*  jackBridge[4];
+    JackBridge*  jackBridge[NUM_INSTANCES];
 
     // Create instances of jack client
     jackBridge[0] = new JackBridge("JackBridge #1", 0);
