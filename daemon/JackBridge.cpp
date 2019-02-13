@@ -45,7 +45,7 @@ SOFTWARE.
 
 class JackBridge : public JackClient, public JackBridgeDriverIF {
 public:
-    JackBridge(const char* name, int id) : JackClient(name, JACK_PROCESS_CALLBACK), JackBridgeDriverIF(id) {
+    JackBridge(const char* name, int id, int num_Min, int num_Mout) : JackClient(name, JACK_PROCESS_CALLBACK), JackBridgeDriverIF(id) {
         if (attach_shm() < 0) {
             fprintf(stderr, "Attaching shared memory failed (id=%d)\n", id);
             exit(1);
@@ -61,7 +61,7 @@ public:
 
         config_audio_ports();
 #ifdef _WITH_MIDI_BRIDGE_
-        create_midi_ports(name);
+        create_midi_ports(name, num_Min, num_Mout);
         register_ports((const char**)nameAin, (const char**)nameAout, (const char**)nameMin, (const char**)nameMout);
 #else
         register_ports((const char**)nameAin, (const char**)nameAout, NULL, NULL);
@@ -152,6 +152,11 @@ public:
         return 0;
     }
 
+    void setVerbose(bool flag) {
+        printf("JackBridge#%d: Verbose mode %s.\n", instance, flag ? "on" : "off");
+        isVerbose = flag;
+    }
+
 private:
     bool isActive, isSyncMode, isVerbose;
     bool showmsg;
@@ -227,18 +232,11 @@ private:
         return num;
     }
 
-    void create_midi_ports(const char* name) {
+    void create_midi_ports(const char* name, int num_Min, int num_Mout) {
         char buf[256];
-        char* nports;
 
         // create bridge from Jack to CoreMIDI
-        nports = getenv("NUM_MIDI_OUTPUTS");
-        if (nports != nullptr) {
-            int n = atoi(nports);
-            nOutPorts = (n > MAX_MIDI_PORTS) ? MAX_MIDI_PORTS : n;
-        } else {
-            nOutPorts = get_num_ports(JackPortIsOutput);
-        }
+        nOutPorts = (num_Mout < 0) ? get_num_ports(JackPortIsOutput) : num_Mout;
         midiout = (RtMidiOut**)malloc(sizeof(RtMidiOut*)*nOutPorts);
         nameMin = (char**)malloc(sizeof(char*)*(nOutPorts+1));
 
@@ -258,13 +256,7 @@ private:
         nameMin[nOutPorts] = NULL;
 
         // create bridge from CoreMIDI to Jack
-        nports = getenv("NUM_MIDI_INPUTS");
-        if (nports != nullptr) {
-            int n = atoi(nports);
-            nInPorts = (n > MAX_MIDI_PORTS) ? MAX_MIDI_PORTS : n;
-        } else {
-            nInPorts = get_num_ports(JackPortIsInput);
-        }
+        nInPorts = (num_Min < 0) ? get_num_ports(JackPortIsInput) : num_Min;
         midiin = (RtMidiIn**)malloc(sizeof(RtMidiIn*)*nInPorts);
         nameMout = (char**)malloc(sizeof(char*)*(nInPorts+1));
 
@@ -379,10 +371,41 @@ private:
 int
 main(int argc, char** argv)
 {
-    JackBridge*  jackBridge[NUM_INSTANCES];
+    JackBridge* jackBridge[NUM_INSTANCES];
+    int ch, num_midiIn=-1, num_midiOut=-1;
+    bool vflag=false;
+
+    while ((ch = getopt(argc, argv, "vi:o:")) != -1) {
+        switch (ch) {
+            case 'v':
+                vflag = true;
+                break;
+#ifdef _WITH_MIDI_BRIDGE_
+            case 'i':
+                num_midiIn = atoi(optarg);
+                if (num_midiIn > MAX_MIDI_PORTS) {
+                    fprintf(stderr, "%s: exceed maximum MIDI Inputs number (> %d)\n", argv[0], MAX_MIDI_PORTS);
+                }
+                break;
+
+            case 'o':
+                num_midiOut = atoi(optarg);
+                if (num_midiOut > MAX_MIDI_PORTS) {
+                    fprintf(stderr, "%s: exceed maximum MIDI Outputs number (> %d)\n", argv[0], MAX_MIDI_PORTS);
+                }
+                break;
+#endif
+             default:
+                fprintf(stderr, "Usage: %s [-v] [-i <# of MIDI-In>] [-o <# of MIDI-Out>]\n", argv[0]);
+                return -1;
+        }
+    }
 
     // Create instances of jack client
-    jackBridge[0] = new JackBridge("JackBridge #1", 0);
+    jackBridge[0] = new JackBridge("JackBridge #1", 0, num_midiIn, num_midiOut);
+    if (vflag) {
+        jackBridge[0]->setVerbose(vflag);
+    }
     //jackBridge[1] = new JackBridge("JackBridge #2", 1);
 
     // activate gateway from/to jack ports
