@@ -1,12 +1,12 @@
 # JackBridge (former "JackRouter")
 ## About
-This is an alternative to jackrouter for MacOS. JackBridge acts as virtual
-(currently 2in-4out) audio interfece connected to Jackaudio server directly.
+This is an alternative to jackrouter for MacOS. JackBridge acts as a virtual
+audio interface (currently 2in-4out) connected to Jackaudio server directly.
 Even though the master clock of JackBridge becomes synchronized with Jack 
 server, Core Audio Applications connected via JackBridge is out of jackaudio
 connection graph scope. Therefore, I changed the name from "Router" to "Bridge".
 
-NOTE: This is still experimental prototype implementation. Please be careful to use it.
+NOTE: This is still experimental prototype implementation. Please be careful using it.
 
 ## Changes
 - Master clock synchronization with Jack server
